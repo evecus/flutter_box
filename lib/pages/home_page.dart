@@ -357,6 +357,8 @@ class _HomePageState extends State<HomePage> {
                 TvFocusable(
                   autofocus: i == 0,
                   radius: 8,
+                  // 列表项文字为白色: 焦点态只发光+放大, 不用白填充 (避免白字白底).
+                  focusBackground: false,
                   onTap: () => Navigator.of(ctx).pop(items[i]),
                   child: ListTile(
                     leading: Icon(
@@ -517,7 +519,7 @@ class _HomePageState extends State<HomePage> {
       }
     }
     return Padding(
-      padding: EdgeInsets.fromLTRB(tv ? 20 : 12, tv ? 10 : 8, tv ? 16 : 8, 4),
+      padding: EdgeInsets.fromLTRB(tv ? 20 : 12, tv ? 12 : 8, tv ? 16 : 8, 4),
       child: Row(
         children: [
           // 线路 / 站源: TV 下为可聚焦 chip (焦点白描边), 手机为普通 InkWell.
@@ -547,8 +549,8 @@ class _HomePageState extends State<HomePage> {
               radius: 18,
               onTap: _openSearch,
               child: Container(
-                height: tv ? 44 : 36,
-                padding: const EdgeInsets.symmetric(horizontal: 12),
+                height: tv ? 52 : 36,
+                padding: const EdgeInsets.symmetric(horizontal: 14),
                 decoration: BoxDecoration(
                   color: theme.colorScheme.surfaceContainerHighest,
                   borderRadius: BorderRadius.circular(18),
@@ -558,7 +560,7 @@ class _HomePageState extends State<HomePage> {
                     const Icon(Icons.search, size: 18, color: Colors.grey),
                     const SizedBox(width: 8),
                     Text('搜索影视...',
-                        style: TextStyle(fontSize: tv ? 15 : 12, color: Colors.grey)),
+                        style: TextStyle(fontSize: tv ? 17 : 12, color: Colors.grey)),
                   ],
                 ),
               ),
@@ -569,7 +571,7 @@ class _HomePageState extends State<HomePage> {
             TvButton(
               label: '收藏',
               icon: Icons.star_border,
-              height: 44,
+              height: 52,
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute(builder: (_) => const FavoritesPage()),
               ),
@@ -578,7 +580,7 @@ class _HomePageState extends State<HomePage> {
             TvButton(
               label: '历史',
               icon: Icons.history,
-              height: 44,
+              height: 52,
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute(builder: (_) => const HistoryPage()),
               ),
@@ -621,8 +623,8 @@ class _HomePageState extends State<HomePage> {
           else
             Text(label,
                 style: TextStyle(
-                    fontSize: tv ? 15 : 13, fontWeight: FontWeight.w600)),
-          Icon(icon, size: tv ? 20 : 18, color: Colors.grey),
+                    fontSize: tv ? 17 : 13, fontWeight: FontWeight.w600)),
+          Icon(icon, size: tv ? 22 : 18, color: Colors.grey),
         ],
       ),
     );
@@ -632,7 +634,7 @@ class _HomePageState extends State<HomePage> {
     if (_tabs.length <= 1) return const SizedBox.shrink();
     final tv = TvMode.isTV.value;
     return SizedBox(
-      height: tv ? 52 : 44,
+      height: tv ? 60 : 44,
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
         padding: EdgeInsets.symmetric(horizontal: tv ? 16 : 8),
@@ -645,11 +647,11 @@ class _HomePageState extends State<HomePage> {
               label: Text(_tabs[i].name, maxLines: 1, overflow: TextOverflow.ellipsis),
               selected: selected,
               labelStyle: TextStyle(
-                fontSize: tv ? 15 : 13,
+                fontSize: tv ? 17 : 13,
                 color: selected ? theme.colorScheme.onPrimary : null,
                 fontWeight: selected ? FontWeight.w600 : null,
               ),
-              padding: EdgeInsets.symmetric(horizontal: tv ? 14 : 8, vertical: tv ? 8 : 4),
+              padding: EdgeInsets.symmetric(horizontal: tv ? 16 : 8, vertical: tv ? 10 : 4),
               onSelected: (_) => _selectTab(i),
             ),
           );
@@ -718,10 +720,10 @@ class _HomePageState extends State<HomePage> {
       gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
         // TV: 大海报 (对照原版 item_grid.xml vs_214 x vs_280 ≈ 0.76,
         // 留出片名栏后取 0.66); 手机: 原 130 宽小网格.
-        maxCrossAxisExtent: TvMode.isTV.value ? 200 : 130,
-        childAspectRatio: TvMode.isTV.value ? 0.66 : 0.62,
-        mainAxisSpacing: TvMode.isTV.value ? 14 : 8,
-        crossAxisSpacing: TvMode.isTV.value ? 14 : 8,
+        maxCrossAxisExtent: TvMode.isTV.value ? 240 : 130,
+        childAspectRatio: TvMode.isTV.value ? 0.68 : 0.62,
+        mainAxisSpacing: TvMode.isTV.value ? 16 : 8,
+        crossAxisSpacing: TvMode.isTV.value ? 16 : 8,
       ),
       itemCount: st.items.length + (st.hasMore && tab.id != 'my0' ? 1 : 0),
       itemBuilder: (ctx, i) {
@@ -864,7 +866,7 @@ class _HomePageState extends State<HomePage> {
         text,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
-        style: TextStyle(fontSize: tv ? 12 : 10, color: Colors.white),
+        style: TextStyle(fontSize: tv ? 14 : 10, color: Colors.white),
       ),
     );
   }

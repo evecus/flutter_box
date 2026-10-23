@@ -214,6 +214,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   TvFocusable(
                     autofocus: i == 0,
                     radius: 8,
+                    focusBackground: false,
                     onTap: () => Navigator.of(ctx).pop(options[i]),
                     child: ListTile(
                       leading: Icon(
@@ -336,17 +337,27 @@ class _SettingsPageState extends State<SettingsPage> {
   }) {
     final tv = TvMode.isTV.value;
     final effective = onPressed == null ? null : (tv ? () {} : onPressed);
+    final textStyle = tv ? const TextStyle(fontSize: 17) : null;
     Widget btn;
     if (filled) {
-      btn = FilledButton(onPressed: effective, child: Text(label));
+      btn = FilledButton(
+        style: textStyle == null ? null : TextButton.styleFrom(textStyle: textStyle),
+        onPressed: effective,
+        child: Text(label),
+      );
     } else if (icon != null) {
       btn = OutlinedButton.icon(
+        style: textStyle == null ? null : TextButton.styleFrom(textStyle: textStyle),
         onPressed: effective,
-        icon: Icon(icon, size: 18),
+        icon: Icon(icon, size: tv ? 22 : 18),
         label: Text(label),
       );
     } else {
-      btn = OutlinedButton(onPressed: effective, child: Text(label));
+      btn = OutlinedButton(
+        style: textStyle == null ? null : TextButton.styleFrom(textStyle: textStyle),
+        onPressed: effective,
+        child: Text(label),
+      );
     }
     if (!tv) return btn;
     return TvFocusable(onTap: onPressed, radius: 8, child: btn);

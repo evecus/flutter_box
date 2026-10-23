@@ -74,7 +74,7 @@ class _RootPageState extends State<RootPage> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(Icons.movie_filter_rounded,
-                        size: 30, color: Theme.of(context).colorScheme.primary),
+                        size: 34, color: Theme.of(context).colorScheme.primary),
                     const SizedBox(height: 4),
                     const Text('NovaBox',
                         style: TextStyle(fontSize: 11, color: Colors.grey)),
@@ -84,9 +84,9 @@ class _RootPageState extends State<RootPage> {
               destinations: [
                 for (final d in _destinations)
                   NavigationRailDestination(
-                    icon: Icon(d.$1, size: 24),
-                    selectedIcon: Icon(d.$2, size: 24),
-                    label: Text(d.$3, style: const TextStyle(fontSize: 13)),
+                    icon: Icon(d.$1, size: 28),
+                    selectedIcon: Icon(d.$2, size: 28),
+                    label: Text(d.$3, style: const TextStyle(fontSize: 15)),
                   ),
               ],
             ),
@@ -102,7 +102,7 @@ class _RootPageState extends State<RootPage> {
                   padding: const EdgeInsets.only(left: 20),
                   child: Text(
                     _titles[_tab],
-                    style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                    style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
                   ),
                 ),
                 const Divider(height: 1),

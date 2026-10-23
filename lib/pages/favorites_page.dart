@@ -60,10 +60,10 @@ class _FavoritesPageState extends State<FavoritesPage> {
       child: GridView.builder(
         padding: EdgeInsets.all(tv ? 16 : 8),
         gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
-          maxCrossAxisExtent: tv ? 200 : 130,
-          childAspectRatio: tv ? 0.66 : 0.62,
-          mainAxisSpacing: tv ? 14 : 8,
-          crossAxisSpacing: tv ? 14 : 8,
+          maxCrossAxisExtent: tv ? 240 : 130,
+          childAspectRatio: tv ? 0.68 : 0.62,
+          mainAxisSpacing: tv ? 16 : 8,
+          crossAxisSpacing: tv ? 16 : 8,
         ),
         itemCount: _items.length,
         itemBuilder: (ctx, i) {
@@ -102,9 +102,9 @@ class _FavoritesPageState extends State<FavoritesPage> {
                 ),
                 const SizedBox(height: 4),
                 Text(item.name, maxLines: 1, overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: tv ? 14 : 12)),
+                    style: TextStyle(fontSize: tv ? 16 : 12)),
                 Text(item.siteName, maxLines: 1, overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: tv ? 12 : 10, color: Colors.grey)),
+                    style: TextStyle(fontSize: tv ? 14 : 10, color: Colors.grey)),
               ],
             ),
           );

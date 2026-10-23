@@ -218,15 +218,15 @@ class _SearchPageState extends State<SearchPage> {
   Widget _tvScaffold() {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('搜索', style: TextStyle(fontSize: 18)),
+        title: const Text('搜索', style: TextStyle(fontSize: 20)),
         leading: const BackButton(),
       ),
       body: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(width: 380, child: _tvLeftPanel()),
+          SizedBox(width: 430, child: _tvLeftPanel()),
           const VerticalDivider(width: 1),
-          SizedBox(width: 220, child: _hotWordPanel()),
+          SizedBox(width: 240, child: _hotWordPanel()),
           const VerticalDivider(width: 1),
           Expanded(child: _body()),
         ],
@@ -244,14 +244,14 @@ class _SearchPageState extends State<SearchPage> {
         TvButton(
           label: _searchSite?.name ?? '全部源站',
           icon: Icons.tune,
-          height: 44,
-          fontSize: 15,
+          height: 52,
+          fontSize: 17,
           onTap: _pickSearchSite,
         ),
         const SizedBox(height: 10),
         // 输入框: 焦点态白色描边, 只读 (输入全靠下方键盘).
         Container(
-          height: 48,
+          height: 56,
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(8),
             border: Border.all(
@@ -259,17 +259,17 @@ class _SearchPageState extends State<SearchPage> {
               width: _inputFocused ? 2 : 1,
             ),
           ),
-          padding: const EdgeInsets.symmetric(horizontal: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 14),
           alignment: Alignment.center,
           child: TextField(
             controller: _ctrl,
             focusNode: _inputFocus,
             readOnly: true,
             showCursor: true,
-            style: const TextStyle(fontSize: 16),
+            style: const TextStyle(fontSize: 18),
             decoration: const InputDecoration(
               hintText: '请输入要搜索的内容',
-              hintStyle: TextStyle(fontSize: 14),
+              hintStyle: TextStyle(fontSize: 16),
               border: InputBorder.none,
               isCollapsed: true,
             ),
@@ -282,8 +282,8 @@ class _SearchPageState extends State<SearchPage> {
               child: TvButton(
                 label: '搜索',
                 icon: Icons.search,
-                height: 48,
-                fontSize: 16,
+                height: 56,
+                fontSize: 18,
                 selected: true,
                 onTap: () => _search(),
               ),
@@ -292,8 +292,8 @@ class _SearchPageState extends State<SearchPage> {
             Expanded(
               child: TvButton(
                 label: '清空',
-                height: 48,
-                fontSize: 16,
+                height: 56,
+                fontSize: 18,
                 onTap: () {
                   _ctrl.clear();
                   setState(() {
@@ -337,7 +337,7 @@ class _SearchPageState extends State<SearchPage> {
         radius: 6,
         onTap: () => _onKey(key),
         child: Container(
-          height: 46,
+          height: 56,
           alignment: Alignment.center,
           decoration: BoxDecoration(
             color: const Color(0x6C3D3D3D),
@@ -346,7 +346,7 @@ class _SearchPageState extends State<SearchPage> {
           child: Text(
             key,
             style: TextStyle(
-              fontSize: wide ? 14 : 16,
+              fontSize: wide ? 16 : 20,
               fontWeight: wide ? FontWeight.w600 : FontWeight.normal,
               color: Colors.white,
             ),
@@ -405,6 +405,7 @@ class _SearchPageState extends State<SearchPage> {
                   TvFocusable(
                     autofocus: i == 0,
                     radius: 8,
+                    focusBackground: false,
                     onTap: () => Navigator.of(ctx).pop(options[i]),
                     child: ListTile(
                       leading: Icon(
@@ -441,7 +442,7 @@ class _SearchPageState extends State<SearchPage> {
       children: [
         const Padding(
           padding: EdgeInsets.fromLTRB(12, 12, 12, 4),
-          child: Text('热词', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          child: Text('热词', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
         ),
         Expanded(
           child: ListView(
@@ -469,9 +470,9 @@ class _SearchPageState extends State<SearchPage> {
                       _search(w);
                     },
                     child: Container(
-                      height: 40,
+                      height: 50,
                       alignment: Alignment.center,
-                      padding: const EdgeInsets.symmetric(horizontal: 14),
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
                       decoration: BoxDecoration(
                         color: const Color(0x6C3D3D3D),
                         borderRadius: BorderRadius.circular(20),
@@ -480,7 +481,7 @@ class _SearchPageState extends State<SearchPage> {
                         w,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 14, color: Colors.white),
+                        style: const TextStyle(fontSize: 16, color: Colors.white),
                       ),
                     ),
                   ),
@@ -586,8 +587,8 @@ class _SearchPageState extends State<SearchPage> {
         borderRadius: BorderRadius.circular(12),
         onTap: onTap,
         child: Container(
-          height: 44,
-          padding: const EdgeInsets.symmetric(horizontal: 6),
+          height: 54,
+          padding: const EdgeInsets.symmetric(horizontal: 8),
           alignment: Alignment.center,
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(12),
@@ -601,7 +602,7 @@ class _SearchPageState extends State<SearchPage> {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
-              fontSize: 13,
+              fontSize: 15,
               fontWeight: selected ? FontWeight.bold : FontWeight.normal,
             ),
           ),
@@ -636,14 +637,19 @@ class _SearchPageState extends State<SearchPage> {
           ),
         );
       },
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 4),
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          color: const Color(0x6C3D3D3D),
+          borderRadius: BorderRadius.circular(8),
+        ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             ClipRRect(
               borderRadius: BorderRadius.circular(6),
-              child: SizedBox(width: 92, height: 124, child: _cover(item)),
+              child: SizedBox(width: 110, height: 150, child: _cover(item)),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -654,7 +660,7 @@ class _SearchPageState extends State<SearchPage> {
                   Text(item.name,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
+                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w500)),
                   const SizedBox(height: 8),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),

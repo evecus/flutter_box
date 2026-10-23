@@ -146,20 +146,20 @@ class _DetailPageState extends State<DetailPage> {
   Widget _buildDetail() {
     final tv = TvMode.isTV.value;
     return ListView(
-      padding: EdgeInsets.all(tv ? 20 : 12),
+      padding: EdgeInsets.all(tv ? 24 : 12),
       children: [
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             if (((_json['vod_pic'] ?? '') as String).isNotEmpty)
               SizedBox(
-                width: tv ? 150 : 110,
+                width: tv ? 180 : 110,
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(8),
                   child: Image.network(
                     _json['vod_pic'] as String,
                     fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => Container(height: tv ? 200 : 150, color: Colors.grey.shade800),
+                    errorBuilder: (_, __, ___) => Container(height: tv ? 240 : 150, color: Colors.grey.shade800),
                   ),
                 ),
               ),
@@ -175,10 +175,10 @@ class _DetailPageState extends State<DetailPage> {
                   const SizedBox(height: 6),
                   if (((_json['vod_year'] ?? '')).toString().isNotEmpty)
                     Text((_json['vod_year'] ?? '').toString(),
-                        style: TextStyle(fontSize: tv ? 15 : 14)),
+                        style: TextStyle(fontSize: tv ? 17 : 14)),
                   if (((_json['vod_area'] ?? '')).toString().isNotEmpty)
                     Text((_json['vod_area'] ?? '').toString(),
-                        style: TextStyle(fontSize: tv ? 15 : 14)),
+                        style: TextStyle(fontSize: tv ? 17 : 14)),
                   Text(widget.site.name,
                       style: TextStyle(color: Colors.grey, fontSize: tv ? 14 : 12)),
                 ],
@@ -193,12 +193,12 @@ class _DetailPageState extends State<DetailPage> {
         if (((_json['vod_actor'] ?? '')).toString().isNotEmpty)
           Text((_json['vod_actor'] ?? '').toString(),
               maxLines: 2, overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: tv ? 15 : 14)),
+              style: TextStyle(fontSize: tv ? 17 : 14)),
         if (((_json['vod_content'] ?? '')).toString().isNotEmpty) ...[
           const SizedBox(height: 6),
           Text((_json['vod_content'] ?? '').toString(),
               maxLines: 8, overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: tv ? 15 : 14)),
+              style: TextStyle(fontSize: tv ? 17 : 14)),
         ],
         const SizedBox(height: 16),
         for (final entry in _groups.asMap().entries) _groupSection(entry.key, entry.value),
@@ -231,16 +231,17 @@ class _DetailPageState extends State<DetailPage> {
                   _openEp();
                 },
                 child: Container(
-                  constraints: BoxConstraints(minWidth: tv ? 64 : 0, minHeight: tv ? 44 : 0),
+                  constraints: BoxConstraints(minWidth: tv ? 76 : 0, minHeight: tv ? 52 : 0),
                   alignment: Alignment.center,
-                  padding: EdgeInsets.symmetric(horizontal: tv ? 14 : 12, vertical: tv ? 10 : 8),
+                  padding: EdgeInsets.symmetric(horizontal: tv ? 18 : 12, vertical: tv ? 12 : 8),
                   decoration: BoxDecoration(
+                    color: const Color(0x6C3D3D3D),
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(color: Theme.of(context).colorScheme.outline),
                   ),
                   child: Text(
                     group.eps[i].isEmpty ? '第${i + 1}集' : group.eps[i].trim(),
-                    style: TextStyle(fontSize: tv ? 15 : 14),
+                    style: TextStyle(fontSize: tv ? 17 : 14),
                   ),
                 ),
               ),
@@ -281,6 +282,7 @@ class _DetailPageState extends State<DetailPage> {
                       TvFocusable(
                         autofocus: i == 0,
                         radius: 8,
+                        focusBackground: false,
                         onTap: () => Navigator.of(ctx).pop(candidates[i]),
                         child: ListTile(
                           leading: const Icon(Icons.swap_horiz, color: Colors.white70),

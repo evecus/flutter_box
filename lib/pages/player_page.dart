@@ -51,7 +51,7 @@ class _PlayerPageState extends State<PlayerPage> {
       // 日志显示 mediacodec 解码器已正常启动, 黑屏发生在"GL 纹理渲染"一环 (联发科/ColorOS
       // 上 media_kit 的 GPU 纹理路径可能拿不到画面). 关闭 GPU 渲染, 改走 CPU 像素缓冲纹理:
       // 解码仍由 mediacodec-copy 硬解, 只是上屏改用软件路径, 兼容性最好.
-      enableHardwareAcceleration: false,
+      enableHardwareAcceleration: true,
     ),
   );
 
@@ -295,8 +295,8 @@ class _PlayerPageState extends State<PlayerPage> {
           TvButton(
             label: '返回',
             icon: Icons.arrow_back,
-            height: 38,
-            fontSize: 14,
+            height: 46,
+            fontSize: 16,
             onTap: () => Navigator.of(context).pop(),
           ),
           const SizedBox(width: 14),
@@ -305,15 +305,15 @@ class _PlayerPageState extends State<PlayerPage> {
               '${widget.vodName} · $_epName',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 16),
+              style: const TextStyle(fontSize: 18),
             ),
           ),
           if (widget.epUrls.isNotEmpty)
             TvButton(
               label: '下一集',
               icon: Icons.skip_next_outlined,
-              height: 38,
-              fontSize: 14,
+              height: 46,
+              fontSize: 16,
               onTap: _idx + 1 >= widget.epUrls.length ? null : _playNext,
             ),
         ],
@@ -337,8 +337,8 @@ class _PlayerPageState extends State<PlayerPage> {
                 builder: (ctx, snap) => TvButton(
                   label: snap.data == true ? '暂停' : '播放',
                   icon: snap.data == true ? Icons.pause : Icons.play_arrow,
-                  height: 40,
-                  fontSize: 14,
+                  height: 48,
+                  fontSize: 16,
                   onTap: () => _player.playOrPause(),
                 ),
               ),
@@ -346,16 +346,16 @@ class _PlayerPageState extends State<PlayerPage> {
               TvButton(
                 label: '快退 10s',
                 icon: Icons.replay_10,
-                height: 40,
-                fontSize: 14,
+                height: 48,
+                fontSize: 16,
                 onTap: () => _seekBy(-10),
               ),
               const SizedBox(width: 8),
               TvButton(
                 label: '快进 10s',
                 icon: Icons.forward_10,
-                height: 40,
-                fontSize: 14,
+                height: 48,
+                fontSize: 16,
                 onTap: () => _seekBy(10),
               ),
             ],
@@ -363,9 +363,9 @@ class _PlayerPageState extends State<PlayerPage> {
           Row(
             children: [
               SizedBox(
-                width: 52,
+                width: 60,
                 child: Text(_fmt(_player.state.position),
-                    style: const TextStyle(fontSize: 12)),
+                    style: const TextStyle(fontSize: 14)),
               ),
               Expanded(
                 child: StreamBuilder<Duration>(
@@ -384,9 +384,9 @@ class _PlayerPageState extends State<PlayerPage> {
                 ),
               ),
               SizedBox(
-                width: 52,
+                width: 60,
                 child: Text(_fmt(_player.state.duration),
-                    style: const TextStyle(fontSize: 12)),
+                    style: const TextStyle(fontSize: 14)),
               ),
             ],
           ),
@@ -399,7 +399,7 @@ class _PlayerPageState extends State<PlayerPage> {
   Widget _tvEpisodeBar() {
     if (widget.epUrls.isEmpty) return const SizedBox.shrink();
     return Container(
-      height: 84,
+      height: 96,
       color: Colors.black26,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       child: ListView.builder(
@@ -410,8 +410,8 @@ class _PlayerPageState extends State<PlayerPage> {
           child: TvButton(
             label: widget.epNames[i].isEmpty ? '第${i + 1}集' : widget.epNames[i],
             selected: i == _idx,
-            height: 56,
-            fontSize: 14,
+            height: 64,
+            fontSize: 16,
             onTap: i == _idx ? null : () => _openIndex(i),
           ),
         ),
