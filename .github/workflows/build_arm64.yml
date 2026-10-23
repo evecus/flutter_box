@@ -44,9 +44,9 @@ jobs:
           flutter build apk --release
           mv build/app/outputs/flutter-apk/app-release.apk NovaBox-arm64.apk
 
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
         with:
-          name: NovaBox-arm64
-          path: NovaBox-arm64.apk
-          if-no-files-found: error
+          tag_name: bin
+          prerelease: false
+          files: NovaBox-arm64.apk
