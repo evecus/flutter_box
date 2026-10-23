@@ -4,21 +4,24 @@ publish_to: none
 version: 1.0.0+1
 
 environment:
-  sdk: ">=2.17.0 <4.0.0"
+  # 项目代码使用 Dart 3 records (lib/config/config.dart 的 (bool ok, String msg)
+  # 返回类型 / 各处 final (ok, msg) 解构), 且 media_kit >=1.2.0 要求 Dart >=3.1.
+  # sdk 下限决定语言版本: 写 2.17 会把语言特性钉死在 2.17, records 全部编译失败.
+  sdk: ">=3.1.0 <4.0.0"
 
 dependencies:
   flutter:
     sdk: flutter
   cupertino_icons: 1.0.5
-  # 锁死精确版本: 1.3.x 系列要求 Flutter 3.35+ 的新 embedding (onSurfaceDestroyed)
+  # 锁死精确版本: 1.3.x 系列要求 Flutter 3.35+ 的新 embedding (onSurfaceDestroyed),
+  # 在 Flutter 3.27 上 VideoOutput.java 编译不过; 1.2.x 兼容 Flutter 3.7 ~ 3.34.
   shared_preferences: 2.0.15
   path_provider: 2.0.14
   http: 0.13.5
   # 播放器 (lib/pages/player_page.dart, lib/main.dart, lib/pages/settings_page.dart 引用).
-  # media_kit_video 全系要求 Flutter SDK >=3.7; ^1.2.0 覆盖 Dart 3.1+,
-  # 播放链 API (Player / Media / VideoController) 与本项目用法一致.
-  media_kit: ^1.2.0
-  media_kit_video: ^1.2.0
+  # 锁 <1.3.0: CI 与本地均为 Flutter 3.27.4; 升级到 Flutter >=3.35 时再放开到 1.3.x.
+  media_kit: '>=1.2.0 <1.3.0'
+  media_kit_video: '>=1.2.0 <1.3.0'
 
 dev_dependencies:
   flutter_test:
