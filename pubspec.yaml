@@ -22,6 +22,9 @@ dependencies:
   # 锁 <1.3.0: CI 与本地均为 Flutter 3.27.4; 升级到 Flutter >=3.35 时再放开到 1.3.x.
   media_kit: '>=1.2.0 <1.3.0'
   media_kit_video: '>=1.2.0 <1.3.0'
+  # Android 原生 libmpv (含 ffmpeg) 必须单独依赖, 否则 APK 里没有 libmpv.so,
+  # MediaKit.ensureInitialized() 启动即崩溃 (APK 也会偏小, 日志中仅 23.7MB).
+  media_kit_libs_android_video: ^1.3.0
 
 dev_dependencies:
   flutter_test:
