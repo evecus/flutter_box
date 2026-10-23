@@ -83,7 +83,7 @@ class ControlServer : NanoHTTPD {
     }
 
     private fun serveProxy(session: IHTTPSession): Response {
-        ensureStarted()
+        LocalServer.ensureStarted()
         // 对照原版 RemoteServer: params = parms + headers.
         // jar 代理从 params 读 range/ua/referer/host, 播放器发给本机的这些头必须透传下去.
         val params: MutableMap<String, String> = HashMap<String, String>()

@@ -189,7 +189,7 @@ object GoProxy {
     }
 
     private fun proxyTypeForUriAttr(line: String, uri: String): String {
-        val upper = line.toUpperCase()
+        val upper = line.uppercase()
         if (upper.startsWith("#EXT-X-KEY") || upper.startsWith("#EXT-X-SESSION-KEY")) return "key"
         if (isM3u8Url(uri) || upper.startsWith("#EXT-X-I-FRAME-STREAM-INF")) return "m3u8"
         return "media"
@@ -197,7 +197,7 @@ object GoProxy {
 
     private fun isM3u8Url(url: String?): Boolean {
         if (url == null) return false
-        var lower = url.toLowerCase()
+        var lower = url.lowercase()
         val query = lower.indexOf('?')
         if (query >= 0) lower = lower.substring(0, query)
         return lower.endsWith(".m3u8") || lower.endsWith(".m3u")
@@ -261,7 +261,7 @@ object GoProxy {
         val contentType = response.header("Content-Type")
         if (!contentType.isNullOrEmpty()) return contentType
         if (type == "key") return "application/octet-stream"
-        var lower = url.toLowerCase()
+        var lower = url.lowercase()
         val query = lower.indexOf('?')
         if (query >= 0) lower = lower.substring(0, query)
         if (lower.endsWith(".m4s") || lower.endsWith(".mp4") || lower.endsWith(".m4v")) return "video/mp4"
