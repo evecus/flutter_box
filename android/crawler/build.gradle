@@ -1,0 +1,33 @@
+plugins {
+    id 'com.android.library'
+    id 'org.jetbrains.kotlin.android'
+}
+
+android {
+    namespace 'com.github.catvod.crawler'
+    compileSdk 35
+
+    defaultConfig {
+        minSdk 24
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    api project(":quickjs")
+    api "com.squareup.okhttp3:okhttp:4.12.0"
+    implementation "com.squareup.okhttp3:okhttp-dnsoverhttps:4.12.0"
+    implementation "org.jsoup:jsoup:1.17.2"
+    implementation "com.google.code.gson:gson:2.10.1"
+    implementation "org.nanohttpd:nanohttpd:2.3.1"
+    // 原版 OkHttp.toBody/newCall 的 params 参数为 ArrayMap，jar 按该擦除签名调用
+    implementation "androidx.collection:collection:1.2.0"
+}
