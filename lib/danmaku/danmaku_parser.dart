@@ -7,6 +7,15 @@ import 'package:http/http.dart' as http;
 
 import 'danmaku_settings.dart';
 
+/// 弹幕源解析失败 (网络错误 / 空内容), 与"解析成功但没有弹幕"区分开.
+class DanmakuParseException implements Exception {
+  final String message;
+  const DanmakuParseException(this.message);
+
+  @override
+  String toString() => message;
+}
+
 /// bilibili XML 弹幕条目 (播放时间 + 内容).
 class ParsedDanmaku {
   final int timeMs;
@@ -15,7 +24,7 @@ class ParsedDanmaku {
   ParsedDanmaku(this.timeMs, this.item);
 }
 
-/// 弹幕解析器 (移植自 NovaTV Parser + Danmu):
+/// 弹幕解析器 (移植自 NovaBox Parser + Danmu):
 ///   - source 支持 http(s) 地址与内联 XML (gzip/zlib 自动解压)
 ///   - <d p="time,type,size,color">text</d> → DanmakuContentItem
 ///   - type: 1/2/3/6 滚动, 4 底部, 5 顶部, 7/8 特殊弹幕
@@ -24,11 +33,19 @@ class DanmakuParser {
 
   static final _danmuReg = RegExp(r'<d\s+p="([^"]*)"[^>]*>(.*?)</d>', dotAll: true);
 
-  /// 解析弹幕源, 返回按时间排序的条目列表. 失败/空内容返回空列表.
+  static const Duration _timeout = Duration(seconds: 20);
+
+  static const Map<String, String> _headers = {
+    'User-Agent': 'okhttp/4.12.0',
+  };
+
+  /// 解析弹幕源, 返回按时间排序的条目列表.
+  /// 无内容返回空列表; 取不到内容抛 [DanmakuParseException].
   static Future<List<ParsedDanmaku>> parse(String source) async {
-    if (source.trim().isEmpty) return [];
-    final content = await _resolveContent(source.trim());
-    if (content.isEmpty) return [];
+    final text = source.trim();
+    if (text.isEmpty) throw const DanmakuParseException('弹幕地址为空');
+    final content = await _resolveContent(text);
+    if (content.isEmpty) throw const DanmakuParseException('弹幕内容为空');
     return _parseXml(content);
   }
 
@@ -36,15 +53,17 @@ class DanmakuParser {
     if (!source.startsWith('http')) return source;
     try {
       final resp = await http
-          .get(Uri.parse(source), headers: {
-            'User-Agent': 'novabox-flutter',
-            'Accept-Encoding': 'gzip',
-          })
-          .timeout(const Duration(seconds: 20));
-      if (resp.statusCode < 200 || resp.statusCode >= 300) return '';
+          .get(Uri.parse(source), headers: _headers)
+          .timeout(_timeout);
+      if (resp.statusCode < 200 || resp.statusCode >= 300) {
+        throw DanmakuParseException('HTTP ${resp.statusCode}');
+      }
+      if (resp.bodyBytes.isEmpty) return '';
       return _decode(resp.bodyBytes);
+    } on DanmakuParseException {
+      rethrow;
     } catch (_) {
-      return '';
+      throw const DanmakuParseException('弹幕下载失败');
     }
   }
 
@@ -73,6 +92,7 @@ class DanmakuParser {
       final text = _decodeXml(rawText);
       if (text.isEmpty) continue;
       final timeMs = (timeSec * 1000).round();
+      if (timeMs < 0) continue;
       Color color = Color(0xFF000000 | (colorValue & 0xFFFFFF));
       if (settings.randomColor) {
         color = Color(settings.pickRandomColor());

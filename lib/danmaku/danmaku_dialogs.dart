@@ -504,14 +504,19 @@ class _SearchDialogState extends State<_SearchDialog> {
       _loading = true;
       _results = [];
     });
-    final results = await DanmakuApi.searchList(word, widget.episode);
+    final result = await DanmakuApi.searchList(word, widget.episode);
     if (!mounted) return;
     setState(() {
       _loading = false;
       _searched = true;
-      _results = results;
+      _results = result.results;
     });
-    if (results.isEmpty) _toast('未查询到匹配弹幕');
+    // 失败与"查到了但列表为空"要区分提示 (对齐 NovaBox SearchDanmuDialog).
+    if (result.isError) {
+      _toast(result.error);
+    } else if (result.results.isEmpty) {
+      _toast('未查询到匹配弹幕');
+    }
   }
 
   Future<void> _load(DanmuSearchResult result) async {

@@ -134,6 +134,10 @@ class Config {
   /// The currently applied config, shared across pages (首页 / 收藏 / 历史 / 换源).
   static Config? loaded;
 
+  /// 配置里的 "danmaku" 字段 (原版 ApiConfig.getDanmaku()).
+  /// 用户没自定义弹幕接口时, DanmakuApi.getApiUrl() 会回落到它.
+  static String danmakuApi = '';
+
   /// Fired whenever a config is applied (or cleared), so pages can reload.
   static final ValueNotifier<Config?> changeNotifier = ValueNotifier<Config?>(null);
 
@@ -153,6 +157,7 @@ class Config {
     if (text.isEmpty) {
       await saveUrl('');
       await saveLines(const [], '');
+      danmakuApi = '';
       markLoaded(null);
       return (false, '配置已清除');
     }
@@ -313,6 +318,7 @@ class Config {
       final sitesRaw = map['sites'];
       if (sitesRaw is List && sitesRaw.isNotEmpty) {
         spiderRaw = (map['spider'] as String?) ?? '';
+        danmakuApi = ((map['danmaku'] as String?) ?? '').trim();
         _parseSites(sitesRaw);
         url = current;
         return;

@@ -162,8 +162,8 @@ class _PlayerPageState extends State<PlayerPage> {
     DanmakuManager.instance.applySettings();
     // 关闭→开启弹幕时补搜当前集.
     if (DanmuSettings.instance.open && !_danmakuSearched) {
-      _danmakuSearched = true;
       DanmakuManager.instance.loadBySearch(widget.vodName, _epName);
+      _danmakuSearched = true;
     }
     if (mounted) setState(() {});
   }
@@ -175,6 +175,8 @@ class _PlayerPageState extends State<PlayerPage> {
       _showMsg('加载弹幕成功');
     } else if (s == DanmakuLoadStatus.none) {
       _showMsg('未查询到匹配弹幕');
+    } else if (s == DanmakuLoadStatus.failed) {
+      _showMsg('加载弹幕失败');
     }
   }
 
@@ -193,9 +195,11 @@ class _PlayerPageState extends State<PlayerPage> {
       _restoreDone = false;
       _danmakuSearched = false;
     });
-    // 换集: 重置弹幕并按 片名+集名 自动搜索 (对照 NovaTV check(danmu, title, episode)).
-    _danmakuSearched = true;
-    DanmakuManager.instance.loadBySearch(widget.vodName, _epName);
+    // 换集: 重置弹幕 (对照 NovaTV 的 resetDanmuState / check("")).
+    // 注意这里不再无脑发起云搜 —— 对齐 NovaBox PlayFragment:
+    //   爬虫 playerContent 自带了 danmaku 就直接用它; 只有没带时才云搜.
+    _danmakuSearched = false;
+    DanmakuManager.instance.clear();
     final info = await PlayResolver.resolve(widget.site, widget.flag, widget.epUrls[index]);
     if (!mounted) return;
     if (info == null) {
@@ -205,6 +209,7 @@ class _PlayerPageState extends State<PlayerPage> {
       });
       return;
     }
+    _startDanmaku(info.danmaku);
     if (resume) {
       final saved = await WatchProgress.load(widget.site.key, widget.vodId);
       if (!mounted) return;
@@ -229,6 +234,19 @@ class _PlayerPageState extends State<PlayerPage> {
         _loading = false;
         _error = '播放初始化失败: $e';
       });
+    }
+  }
+
+  /// 弹幕入口 (对照 NovaBox PlayFragment 的 searchDanmu / checkDanmu):
+  ///   - [source] 非空 = 爬虫自带弹幕地址, 直接加载;
+  ///   - 为空 = 用 片名 + 集名 走内置/自定义接口自动搜索;
+  ///   - 自动搜索失败时 NovaBox 会回调 checkDanmu("") 做一次收尾, 这里等价处理.
+  void _startDanmaku(String source) {
+    _danmakuSearched = true;
+    if (source.trim().isNotEmpty) {
+      DanmakuManager.instance.loadSource(source.trim());
+    } else {
+      DanmakuManager.instance.loadBySearch(widget.vodName, _epName);
     }
   }
 

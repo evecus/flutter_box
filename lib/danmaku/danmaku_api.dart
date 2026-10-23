@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
+import '../config/config.dart';
 import 'danmaku_settings.dart';
 
 /// 云搜候选弹幕结果.
@@ -18,15 +19,43 @@ class DanmuSearchResult {
   DanmuSearchResult(this.name, this.url, {this.builtIn = false});
 }
 
-/// 弹幕搜索 API (移植自 NovaTV DanmakuApi):
+/// 云搜结果包装: 区分"成功(可能为空列表)"与"失败", 便于弹窗给出准确提示
+/// (对齐 NovaBox DanmakuApi.SearchListCallback 的 onSuccess/onError).
+class DanmuSearchListResult {
+  final List<DanmuSearchResult> results;
+
+  /// 失败原因; 空串表示成功.
+  final String error;
+
+  bool get isError => error.isNotEmpty;
+
+  const DanmuSearchListResult.ok(this.results) : error = '';
+
+  const DanmuSearchListResult.error(this.error) : results = const [];
+}
+
+/// 弹幕搜索 API (移植自 NovaBox DanmakuApi):
 ///   - 内置 echo-danmaku 服务: search/episodes → comment JSON → 转 bilibili XML
 ///   - 自定义接口: 支持 {name}/{episode} 占位 GET, 或 POST name/episode 表单
 ///   - 云搜 (searchList): 返回候选列表供用户手动选择
+///
+/// 关键行为与 NovaBox 保持一致:
+///   - 内置流程的每一步都带 2 次重试 (退避 1.5s/3s), HTTP 非 2xx 同样重试;
+///   - search/episodes 先带"集数数字"查, 未命中再用不带集数的全量结果查一次;
+///   - search/episodes 返回的是电影但没匹配上时不回落到 search/anime (避免张冠李戴).
 class DanmakuApi {
   DanmakuApi._();
 
   static const String builtinApi = 'https://logvardanmu.konfan.cn/87654321';
   static const Duration timeout = Duration(seconds: 20);
+
+  /// 与 NovaBox BUILTIN_MAX_RETRY / 1500ms * (retry + 1) 对齐.
+  static const int maxRetry = 2;
+  static const Duration retryBaseDelay = Duration(milliseconds: 1500);
+
+  /// 集数查询模式: 先带数字, 再不带.
+  static const int _queryNumber = 0;
+  static const int _queryEmpty = 1;
 
   /// 取消标记: 每次搜索前自增, 回调里比对以丢弃过期响应.
   static int _searchSeq = 0;
@@ -35,11 +64,20 @@ class DanmakuApi {
     _searchSeq++;
   }
 
-  /// 当前生效的弹幕接口地址 (自定义优先, 否则内置).
+  /// 是否具备弹幕搜索条件 (对齐 NovaBox DanmakuApi.canSearch).
+  static bool canSearch() =>
+      DanmuSettings.instance.open && getApiUrl().trim().isNotEmpty;
+
+  /// 当前生效的弹幕接口地址: 自定义 > 配置里的 danmaku 字段 > 内置
+  /// (对齐 NovaBox getApiUrl: Hawk 自定义 → ApiConfig.getDanmaku() → BUILTIN_API).
   static String getApiUrl() {
     final s = DanmuSettings.instance;
-    if (s.useDefaultApi) return builtinApi;
-    if (s.customApi.isNotEmpty) return s.customApi;
+    if (!s.useDefaultApi) {
+      final custom = s.customApi.trim();
+      if (custom.isNotEmpty) return custom;
+      final fromConfig = Config.danmakuApi.trim();
+      if (fromConfig.isNotEmpty) return fromConfig;
+    }
     return builtinApi;
   }
 
@@ -47,7 +85,9 @@ class DanmakuApi {
   static String getDisplayApiUrl() {
     final s = DanmuSettings.instance;
     if (s.useDefaultApi) return '';
-    return s.customApi;
+    final custom = s.customApi.trim();
+    if (custom.isNotEmpty) return custom;
+    return Config.danmakuApi.trim();
   }
 
   static bool _hasPlaceholder(String url) =>
@@ -77,7 +117,7 @@ class DanmakuApi {
   /// 自动搜索弹幕: 返回弹幕内容 (bilibili XML 或可下载地址), 失败返回 null.
   static Future<String?> search(String name, String episode) async {
     final apiUrl = getApiUrl();
-    if (apiUrl.isEmpty) return null;
+    if (apiUrl.trim().isEmpty) return null;
     final seq = ++_searchSeq;
     try {
       if (_hasPlaceholder(apiUrl)) {
@@ -86,13 +126,15 @@ class DanmakuApi {
             .replaceAll('{episode}', _encode(episode));
         final body = await _getString(url);
         if (seq != _searchSeq) return null;
-        return _parseUrl(body);
+        final found = _parseUrl(body);
+        return found.isEmpty ? null : found;
       }
       if (_isDanmakuSearchApi(apiUrl)) {
         // 自定义检索接口: POST name/episode, 响应里取 url.
         final body = await _postForm(apiUrl, {'name': name, 'episode': episode});
         if (seq != _searchSeq) return null;
-        return _parseUrl(body);
+        final found = _parseUrl(body);
+        return found.isEmpty ? null : found;
       }
       return await _searchBuiltin(apiUrl, name, episode, seq);
     } catch (_) {
@@ -104,25 +146,41 @@ class DanmakuApi {
   static Future<String?> _searchBuiltin(
       String apiUrl, String name, String episode, int seq) async {
     final base = _normalizeBaseUrl(apiUrl);
-    final epNum = _extractNumber(episode);
-    // 1) search/episodes
-    var url = '$base/api/v2/search/episodes?anime=${_encode(name)}';
-    if (epNum > 0) url += '&episode=$epNum';
-    try {
-      final body = await _getString(url);
-      if (seq != _searchSeq) return null;
-      final match = _findEpisodeFromSearchEpisodes(body, episode);
-      if (match != null && match.id.isNotEmpty) {
-        return await _loadBuiltinComment(base, match.id, seq);
+
+    // 1) search/episodes: 先带集数数字查; 未命中再用不带集数的全量结果查一次.
+    var queryMode = _queryNumber;
+    while (true) {
+      final epQuery = _episodeQuery(episode, queryMode);
+      final url = '$base/api/v2/search/episodes?anime=${_encode(name)}'
+          '${epQuery.isEmpty ? '' : '&episode=${_encode(epQuery)}'}';
+      String? body;
+      try {
+        body = await _getWithRetry(url);
+      } catch (_) {
+        body = null;
       }
-    } catch (_) {}
+      if (seq != _searchSeq) return null;
+      if (body != null) {
+        final match = _findEpisodeFromSearchEpisodes(body, episode);
+        if (match != null && match.id.isNotEmpty) {
+          return await _loadBuiltinComment(base, match.id, seq);
+        }
+        // 返回的是电影但没匹配上: 不再回落到 search/anime.
+        if (_isSearchEpisodesMovieResult(body)) return null;
+      }
+      final next = _nextQueryMode(episode, queryMode);
+      if (next < 0) break;
+      queryMode = next;
+    }
+
     // 2) 兜底: search/anime → bangumi
     try {
-      final body = await _getString('$base/api/v2/search/anime?keyword=${_encode(name)}');
+      final body =
+          await _getWithRetry('$base/api/v2/search/anime?keyword=${_encode(name)}');
       if (seq != _searchSeq) return null;
       final animeId = _findAnimeId(body);
       if (animeId.isEmpty) return null;
-      final bangumi = await _getString('$base/api/v2/bangumi/$animeId');
+      final bangumi = await _getWithRetry('$base/api/v2/bangumi/$animeId');
       if (seq != _searchSeq) return null;
       final match = _findEpisode(bangumi, episode);
       if (match != null && match.id.isNotEmpty) {
@@ -132,24 +190,35 @@ class DanmakuApi {
     return null;
   }
 
-  static Future<String> _loadBuiltinComment(String base, String episodeId, int seq) async {
-    final body = await _getString('$base/api/v2/comment/$episodeId?format=json');
-    if (seq != _searchSeq) return '';
-    return commentJsonToXml(body);
+  /// 带重试的 comment 拉取 (对齐 NovaBox loadBuiltinComment 的重试路径).
+  static Future<String?> _loadBuiltinComment(
+      String base, String episodeId, int seq) async {
+    try {
+      final body =
+          await _getWithRetry('$base/api/v2/comment/$episodeId?format=json');
+      if (seq != _searchSeq) return null;
+      final xml = commentJsonToXml(body);
+      return xml.isEmpty ? null : xml;
+    } catch (_) {
+      return null;
+    }
   }
 
   /// 云搜: 返回候选弹幕列表.
-  static Future<List<DanmuSearchResult>> searchList(String name, String episode) async {
+  static Future<DanmuSearchListResult> searchList(
+      String name, String episode) async {
     final apiUrl = getApiUrl();
-    if (apiUrl.isEmpty) return [];
+    if (apiUrl.trim().isEmpty) {
+      return const DanmuSearchListResult.error('弹幕搜索接口为空');
+    }
     try {
       if (!_hasPlaceholder(apiUrl) && !_isDanmakuSearchApi(apiUrl)) {
         final base = _normalizeBaseUrl(apiUrl);
-        final url = '$base/api/v2/search/episodes?anime=${_encode(name)}';
-        final body = await _getString(url);
-        return _parseBuiltinSearchList(body, base);
+        final body = await _getWithRetry(
+            '$base/api/v2/search/episodes?anime=${_encode(name)}');
+        return DanmuSearchListResult.ok(_parseBuiltinSearchList(body, base));
       }
-      String body;
+      final String body;
       if (_hasPlaceholder(apiUrl)) {
         final url = apiUrl
             .replaceAll('{name}', _encode(name))
@@ -158,28 +227,35 @@ class DanmakuApi {
       } else {
         body = await _postForm(apiUrl, {'name': name, 'episode': episode});
       }
-      return _parseSearchList(body);
-    } catch (_) {
-      return [];
+      return DanmuSearchListResult.ok(_parseSearchList(body));
+    } catch (e) {
+      return DanmuSearchListResult.error(_errorMessage(e));
     }
   }
 
   /// 加载云搜中用户选中的条目: 内置条目需再取 comment JSON 转 xml,
   /// 自定义条目本身就是可用地址, 直接返回.
   static Future<String> loadSearchResult(DanmuSearchResult result) async {
-    if (result.url.isEmpty) return '';
+    if (result.url.trim().isEmpty) return '';
     if (!result.builtIn) return result.url;
-    final body = await _getString(result.url);
-    return commentJsonToXml(body);
+    try {
+      final body = await _getWithRetry(result.url);
+      return commentJsonToXml(body);
+    } catch (_) {
+      return '';
+    }
   }
 
   // ---------------- HTTP ----------------
 
+  static const Map<String, String> _headers = {
+    'User-Agent': 'okhttp/4.12.0',
+  };
+
   static Future<String> _getString(String url) async {
-    final resp = await http.get(Uri.parse(url), headers: {
-      'User-Agent': 'novabox-flutter',
-      'Accept-Encoding': 'gzip',
-    }).timeout(timeout);
+    final resp = await http
+        .get(Uri.parse(url), headers: _headers)
+        .timeout(timeout);
     if (resp.statusCode < 200 || resp.statusCode >= 300) {
       throw HttpException('HTTP ${resp.statusCode}');
     }
@@ -188,7 +264,7 @@ class DanmakuApi {
 
   static Future<String> _postForm(String url, Map<String, String> fields) async {
     final resp = await http
-        .post(Uri.parse(url), body: fields, headers: {'User-Agent': 'novabox-flutter'})
+        .post(Uri.parse(url), body: fields, headers: _headers)
         .timeout(timeout);
     if (resp.statusCode < 200 || resp.statusCode >= 300) {
       throw HttpException('HTTP ${resp.statusCode}');
@@ -196,15 +272,33 @@ class DanmakuApi {
     return _decodeBody(resp.bodyBytes);
   }
 
-  /// dart:io HttpClient 默认 autoUncompress, 但保险起见仍检测 gzip/zlib 魔数手动解压.
+  /// 网络失败 / HTTP 非 2xx 都按可重试错误处理, 退避 1.5s * (retry + 1), 最多 2 次.
+  static Future<String> _getWithRetry(String url) async {
+    for (var retry = 0;; retry++) {
+      try {
+        return await _getString(url);
+      } catch (_) {
+        if (retry >= maxRetry) rethrow;
+        await Future<void>.delayed(retryBaseDelay * (retry + 1));
+      }
+    }
+  }
+
+  /// dart:io HttpClient 默认 autoUncompress, 这里再兜一层 gzip/zlib 魔数检测,
+  /// 防止中间代理原样透传压缩体.
   static String _decodeBody(List<int> bytes) {
     if (bytes.length >= 2 && bytes[0] == 0x1f && bytes[1] == 0x8b) {
-      return utf8.decode(GZipCodec().decode(bytes));
+      return utf8.decode(GZipCodec().decode(bytes), allowMalformed: true);
     }
     if (bytes.length >= 2 && bytes[0] == 0x78) {
-      return utf8.decode(ZLibCodec().decode(bytes));
+      return utf8.decode(ZLibCodec().decode(bytes), allowMalformed: true);
     }
     return utf8.decode(bytes, allowMalformed: true);
+  }
+
+  static String _errorMessage(Object e) {
+    final message = e.toString().trim();
+    return message.isEmpty ? '弹幕搜索失败' : message;
   }
 
   // ---------------- 响应解析 ----------------
@@ -261,18 +355,21 @@ class DanmakuApi {
     return results;
   }
 
-  static void _appendSearchResults(List<DanmuSearchResult> results, List<dynamic> items) {
+  static void _appendSearchResults(
+      List<DanmuSearchResult> results, List<dynamic> items) {
     for (final item in items) {
       if (item is! Map) continue;
       final url = (item['url'] ?? '').toString().trim();
       if (url.isEmpty) continue;
-      final name = (item['name'] ?? item['title'] ?? item['episode'] ?? item['vod_name'] ?? '')
-          .toString();
+      final name =
+          (item['name'] ?? item['title'] ?? item['episode'] ?? item['vod_name'] ?? '')
+              .toString();
       results.add(DanmuSearchResult(name, url));
     }
   }
 
-  static List<DanmuSearchResult> _parseBuiltinSearchList(String body, String base) {
+  static List<DanmuSearchResult> _parseBuiltinSearchList(
+      String body, String base) {
     final results = <DanmuSearchResult>[];
     if (body.trim().isEmpty) return results;
     try {
@@ -280,20 +377,24 @@ class DanmakuApi {
       _appendBuiltinResults(results, base, obj, '');
       final bangumi = obj['bangumi'];
       if (bangumi is Map) {
-        final animeName = (bangumi['animeTitle'] ?? bangumi['title'] ?? bangumi['name'] ?? '')
-            .toString();
-        _appendBuiltinResults(results, base, bangumi, animeName);
+        _appendBuiltinResults(results, base, bangumi,
+            _firstString(bangumi, ['animeTitle', 'title', 'name']));
       }
-      _appendBuiltinAnimeResults(results, base, obj['animes'] ?? obj['anime'] ?? obj['data']);
+      // 与 NovaBox 一致: animes / anime / data 三个键都遍历一遍.
+      for (final key in const ['animes', 'anime', 'data']) {
+        _appendBuiltinAnimeResults(results, base, obj[key]);
+      }
     } catch (_) {}
     return results;
   }
 
-  static void _appendBuiltinAnimeResults(List<DanmuSearchResult> results, String base, dynamic animes) {
+  static void _appendBuiltinAnimeResults(
+      List<DanmuSearchResult> results, String base, dynamic animes) {
     if (animes is! List) return;
     for (final anime in animes) {
       if (anime is! Map) continue;
-      final animeName = (anime['animeTitle'] ?? anime['title'] ?? anime['name'] ?? '').toString();
+      final animeName =
+          (anime['animeTitle'] ?? anime['title'] ?? anime['name'] ?? '').toString();
       _appendBuiltinResults(results, base, anime, animeName);
       final bangumi = anime['bangumi'];
       if (bangumi is Map) {
@@ -302,8 +403,8 @@ class DanmakuApi {
     }
   }
 
-  static void _appendBuiltinResults(
-      List<DanmuSearchResult> results, String base, Map<dynamic, dynamic> object, String animeName) {
+  static void _appendBuiltinResults(List<DanmuSearchResult> results, String base,
+      Map<dynamic, dynamic> object, String animeName) {
     final episodes = object['episodes'];
     if (episodes is! List) return;
     for (final ep in episodes) {
@@ -312,8 +413,10 @@ class DanmakuApi {
       if (id.isEmpty) continue;
       final epName = _firstString(ep, ['episodeTitle', 'title', 'name']);
       var name = animeName.isEmpty ? epName : '$animeName $epName';
-      if (name.isEmpty) name = id;
-      results.add(DanmuSearchResult(name, '$base/api/v2/comment/$id?format=json', builtIn: true));
+      if (name.trim().isEmpty) name = id;
+      results.add(DanmuSearchResult(
+          name, '$base/api/v2/comment/$id?format=json',
+          builtIn: true));
     }
   }
 
@@ -331,10 +434,27 @@ class DanmakuApi {
     return '';
   }
 
-  static _EpisodeMatch? _findEpisodeFromSearchEpisodes(String body, String episode) {
+  static _EpisodeMatch? _findEpisodeFromSearchEpisodes(
+      String body, String episode) {
     final match = _findEpisode(body, episode, allowMovieFallback: false);
     if (match != null) return match;
     return _findMovieFallback(body, episode);
+  }
+
+  /// search/episodes 返回的是电影类型时, 说明片名命中了电影库;
+  /// 若这一轮没匹配上, 不应该再回落到 search/anime (那会匹配到同名剧集).
+  static bool _isSearchEpisodesMovieResult(String body) {
+    try {
+      final obj = jsonDecode(body) as Map<String, dynamic>;
+      final animes = obj['animes'] ?? obj['anime'] ?? obj['data'];
+      if (animes is! List) return false;
+      for (final anime in animes) {
+        if (anime is Map && _isMovieType(anime) && anime['episodes'] != null) {
+          return true;
+        }
+      }
+    } catch (_) {}
+    return false;
   }
 
   static _EpisodeMatch? _findEpisode(String body, String episode,
@@ -342,15 +462,16 @@ class DanmakuApi {
     try {
       final obj = jsonDecode(body) as Map<String, dynamic>;
       final episodeList = _findEpisodeList(obj);
-      if (episodeList == null || episodeList.isEmpty) return null;
+      if (episodeList == null || episodeList.episodes.isEmpty) return null;
       final targetNumber = _extractNumber(episode);
       _EpisodeMatch? first;
       _EpisodeMatch? firstMandarin;
-      for (final item in episodeList) {
+      for (final item in episodeList.episodes) {
         final id = _firstString(item, ['episodeId', 'id']);
         if (id.isEmpty) continue;
         final title = _firstString(item, ['episodeTitle', 'title', 'name']);
-        final number = _parseEpisodeNumber(_firstString(item, ['episodeNumber', 'number', 'sort']));
+        final number =
+            _parseEpisodeNumber(_firstString(item, ['episodeNumber', 'number', 'sort']));
         final match = _EpisodeMatch(id, title, number);
         first ??= match;
         if (firstMandarin == null && _isMandarinTitle(title)) firstMandarin = match;
@@ -364,20 +485,29 @@ class DanmakuApi {
     return null;
   }
 
-  static List<Map<dynamic, dynamic>>? _findEpisodeList(Map<dynamic, dynamic> object) {
+  static _EpisodeList? _findEpisodeList(Map<dynamic, dynamic> object) {
     final episodes = object['episodes'];
-    if (episodes is List) return episodes.cast<Map<dynamic, dynamic>>();
+    if (episodes is List) {
+      return _EpisodeList(episodes.whereType<Map<dynamic, dynamic>>().toList(),
+          _isMovieType(object));
+    }
     final bangumi = object['bangumi'];
     if (bangumi is Map) {
       final eps = bangumi['episodes'];
-      if (eps is List) return eps.cast<Map<dynamic, dynamic>>();
+      if (eps is List) {
+        return _EpisodeList(eps.whereType<Map<dynamic, dynamic>>().toList(),
+            _isMovieType(bangumi));
+      }
     }
     final animes = object['animes'] ?? object['anime'] ?? object['data'];
     if (animes is List) {
       for (final anime in animes) {
         if (anime is! Map) continue;
         final eps = anime['episodes'];
-        if (eps is List && eps.isNotEmpty) return eps.cast<Map<dynamic, dynamic>>();
+        if (eps is List && eps.isNotEmpty) {
+          return _EpisodeList(eps.whereType<Map<dynamic, dynamic>>().toList(),
+              _isMovieType(anime));
+        }
       }
     }
     return null;
@@ -401,9 +531,13 @@ class DanmakuApi {
           if (id.isEmpty) continue;
           final title = _firstString(ep, ['episodeTitle', 'title', 'name']);
           final match = _EpisodeMatch(
-              id, title, _parseEpisodeNumber(_firstString(ep, ['episodeNumber', 'number', 'sort'])));
+              id,
+              title,
+              _parseEpisodeNumber(
+                  _firstString(ep, ['episodeNumber', 'number', 'sort'])));
           firstMovie ??= match;
-          final preferred = preferCantonese ? title.contains('粤语') : _isMandarinTitle(title);
+          final preferred =
+              preferCantonese ? title.contains('粤语') : _isMandarinTitle(title);
           if (preferred) return match;
         }
       }
@@ -413,12 +547,11 @@ class DanmakuApi {
   }
 
   static bool _isMovieType(Map<dynamic, dynamic> object) {
-    final type = (object['type'] ?? object['typeDescription'] ?? '').toString();
-    if (type == '电影') return true;
-    final bangumi = object['bangumi'];
-    if (bangumi is Map) {
-      if ((bangumi['type'] ?? '').toString() == '电影') return true;
+    if ((object['type'] ?? object['typeDescription'] ?? '').toString() == '电影') {
+      return true;
     }
+    final bangumi = object['bangumi'];
+    if (bangumi is Map && (bangumi['type'] ?? '').toString() == '电影') return true;
     final animes = object['animes'] ?? object['anime'] ?? object['data'];
     if (animes is List) {
       for (final anime in animes) {
@@ -430,6 +563,21 @@ class DanmakuApi {
 
   static bool _isMandarinTitle(String title) =>
       title.isNotEmpty && (title.contains('国语') || title.contains('普通话'));
+
+  /// 集数查询值: _queryNumber → 取文本里的数字; _queryEmpty → 空 (不带 episode 参数).
+  static String _episodeQuery(String episode, int queryMode) {
+    if (queryMode == _queryEmpty) return '';
+    final number = _extractNumber(episode);
+    return number > 0 ? '$number' : '';
+  }
+
+  static int _nextQueryMode(String episode, int queryMode) {
+    if (queryMode == _queryNumber &&
+        _episodeQuery(episode, _queryNumber).isNotEmpty) {
+      return _queryEmpty;
+    }
+    return -1;
+  }
 
   static int _parseEpisodeNumber(String value) {
     if (value.isEmpty) return -1;
@@ -541,4 +689,10 @@ class _EpisodeMatch {
   final String title;
   final int number;
   _EpisodeMatch(this.id, this.title, this.number);
+}
+
+class _EpisodeList {
+  final List<Map<dynamic, dynamic>> episodes;
+  final bool isMovie;
+  _EpisodeList(this.episodes, this.isMovie);
 }

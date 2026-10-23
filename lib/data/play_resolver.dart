@@ -10,7 +10,11 @@ class PlayInfo {
   final String url;
   final Map<String, String> headers;
 
-  const PlayInfo(this.url, this.headers);
+  /// 爬虫 playerContent 自带的弹幕地址 (原版 info.optString("danmaku", "")).
+  /// 非空时播放页直接加载它, 不再走云搜.
+  final String danmaku;
+
+  const PlayInfo(this.url, this.headers, {this.danmaku = ''});
 }
 
 /// M2: full play chain resolution for js/jar sources.
@@ -62,7 +66,7 @@ class PlayResolver {
       if (headers['User-Agent'] == null && headers['user-agent'] == null) {
         headers['User-Agent'] = kDefaultHttpUa;
       }
-      return PlayInfo(url, headers);
+      return PlayInfo(url, headers, danmaku: (json['danmaku'] as String?) ?? '');
     } catch (_) {
       return null;
     }
