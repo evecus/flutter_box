@@ -139,13 +139,16 @@ object SpiderLoader {
     ///  3. 其余 → jarLoader (静态 com.github.catvod.spider.Proxy)
     /// siteKey 缺省 (jar 源 do=ck 探测等) 回退最近 invoke 的源, 对齐原版 getCurrentProxySource
     /// 的"当前源"语义 — 不回退则探测 500 → jar 端口检测失败 → 播放转圈 (瓜子/文采实测).
-    fun proxyInvoke(params: Map<String, String>): Array<Any?>? {
+    fun proxyInvoke(params: MutableMap<String, String>): Array<Any?>? {
         val siteKey = params["siteKey"] ?: ""
         val result = try {
             if (params["do"] == "js") {
                 jsLoader.proxyInvoke(params)
             } else {
                 val key = if (siteKey.isNotEmpty()) siteKey else recentSiteKey
+                // 对齐原版 getCurrentProxySource: 回退后把 siteKey 写回 params,
+                // jar 的 BaseSpiderGuard.proxy 靠 params["siteKey"] 定位实例, 缺了照样 null
+                if (siteKey.isEmpty() && key.isNotEmpty()) params["siteKey"] = key
                 val info = siteInfos[key]
                 val isApiJs = info != null && isJsApi(info.optString("api"))
                 if (key.isNotEmpty() && siteTypes[key] == TYPE_JS && !isApiJs) {
