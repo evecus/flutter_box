@@ -79,8 +79,7 @@ class _TvFocusableState extends State<TvFocusable> {
     final isSelect = key == LogicalKeyboardKey.enter ||
         key == LogicalKeyboardKey.select ||
         key == LogicalKeyboardKey.space ||
-        key == LogicalKeyboardKey.gameButtonA ||
-        key == LogicalKeyboardKey.arrowButtonA;
+        key == LogicalKeyboardKey.gameButtonA;
     if (!isSelect) return KeyEventResult.ignored;
     _activate();
     return KeyEventResult.handled;

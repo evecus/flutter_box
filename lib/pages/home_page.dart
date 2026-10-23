@@ -381,7 +381,7 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  String _subtitleOf(Object s) {
+  String _subtitleOf(Object? s) {
     if (s is Site) return s.key;
     if (s is ConfigLine) return s.url;
     return '';
