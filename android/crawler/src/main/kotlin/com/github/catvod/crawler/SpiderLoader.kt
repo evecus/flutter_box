@@ -18,6 +18,12 @@ object SpiderLoader {
 
     private val lock = Any()
 
+    /// 最近一次 invoke 的源 (对齐原版 getCurrentProxySource 的"当前源"语义:
+    /// jar 源的 do=ck 等探测请求不带 siteKey, 原版回退到当前源, 探测才能命中
+    /// spider 实例的 proxy 方法 → 200; 否则探测 500 → jar 端口检测失败 → 播放转圈)
+    @Volatile
+    private var recentSiteKey = ""
+
     fun types(): Map<String, Int> {
         return siteTypes
     }
@@ -78,6 +84,7 @@ object SpiderLoader {
 
     fun invoke(siteKey: String, method: String, arg: String?): String {
         return try {
+            if (siteKey.isNotEmpty()) recentSiteKey = siteKey
             val spider = getSpider(siteKey)
             when (method) {
                 "home" -> spider.homeContent("true" == arg)
@@ -129,23 +136,26 @@ object SpiderLoader {
     ///  1. do=js → jsLoader (js 爬虫自带代理)
     ///  2. type 3 且 api 非 .js (canUseType3): spider.proxy 实例级 → jar 静态 Proxy →
     ///     直链 m3u8 兜底 (GoProxy.direct, 原版 proxyDirect)
-    ///  3. 其余 → jarLoader (静态 com.github.catvod.spider.Proxy, siteKey 缺省走 recentJarKey)
+    ///  3. 其余 → jarLoader (静态 com.github.catvod.spider.Proxy)
+    /// siteKey 缺省 (jar 源 do=ck 探测等) 回退最近 invoke 的源, 对齐原版 getCurrentProxySource
+    /// 的"当前源"语义 — 不回退则探测 500 → jar 端口检测失败 → 播放转圈 (瓜子/文采实测).
     fun proxyInvoke(params: Map<String, String>): Array<Any?>? {
         val siteKey = params["siteKey"] ?: ""
         val result = try {
             if (params["do"] == "js") {
                 jsLoader.proxyInvoke(params)
             } else {
-                val info = siteInfos[siteKey]
+                val key = if (siteKey.isNotEmpty()) siteKey else recentSiteKey
+                val info = siteInfos[key]
                 val isApiJs = info != null && isJsApi(info.optString("api"))
-                if (siteKey.isNotEmpty() && siteTypes[siteKey] == TYPE_JS && !isApiJs) {
-                    val spider = getSpider(siteKey)
+                if (key.isNotEmpty() && siteTypes[key] == TYPE_JS && !isApiJs) {
+                    val spider = getSpider(key)
                     val fromSpider = if (spider !is SpiderNull) spider.proxy(params) else null
                     fromSpider ?: jarLoader.proxyInvoke(params) ?: GoProxy.direct(params)
                 } else if (isApiJs) {
                     jsLoader.proxyInvoke(params)
                 } else {
-                    jarLoader.proxyInvoke(params)
+                    jarLoader.proxyInvoke(params) ?: GoProxy.direct(params)
                 }
             }
         } catch (th: Throwable) {
