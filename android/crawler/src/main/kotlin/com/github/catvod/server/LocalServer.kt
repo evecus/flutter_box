@@ -1,5 +1,6 @@
 package com.github.catvod.server
 
+import com.github.catvod.Proxy
 import com.github.catvod.crawler.SpiderLoader
 import com.mobile.js.App
 import fi.iki.elonen.NanoHTTPD
@@ -69,11 +70,22 @@ class ControlServer : NanoHTTPD {
     private fun serveProxy(session: IHTTPSession): Response {
         val params: MutableMap<String, String> = HashMap<String, String>()
         params.putAll(session.parms)
-        var rs: Array<Any?>? = null
-        try {
-            rs = SpiderLoader.proxyInvoke(params)
+        // 对照原版 RemoteServer.serve: 播放器的请求头 (UA/Referer/Cookie...) 合并进 params,
+        // jar 爬虫的 proxy 实现从 params 读这些头转发上游, 缺失会导致拉流 403/空.
+        params.putAll(session.headers)
+        loge("echo-proxy-dispatch do=" + params["do"] + " go=" + params["go"] +
+            " siteKey=" + params["siteKey"] + " url=" + (params["url"]?.take(120) ?: ""))
+        // 对照原版分流: do=<action> → 爬虫自身代理 (ApiConfig.proxyLocal);
+        // go=<action> → 应用侧 Proxy (live/bom/SuperParse).
+        val rs: Array<Any?>? = try {
+            when {
+                params.containsKey("do") -> SpiderLoader.proxyInvoke(params)
+                params.containsKey("go") -> Proxy.proxy(params)
+                else -> null
+            }
         } catch (th: Throwable) {
             loge("echo-proxy-dispatch " + th.message)
+            null
         }
         return buildProxyResponse(rs)
     }

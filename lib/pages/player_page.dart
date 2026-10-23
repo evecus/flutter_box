@@ -105,12 +105,18 @@ class _PlayerPageState extends State<PlayerPage> {
       _restorePos = 0;
       _restoreDone = false;
     });
-    final info = await PlayResolver.resolve(widget.site, widget.flag, widget.epUrls[index]);
+    final result = await PlayResolver.resolve(widget.site, widget.flag, widget.epUrls[index]);
     if (!mounted) return;
+    final info = result.info;
     if (info == null) {
+      final msg = result.fail == PlayFail.needParse
+          ? '该视频需要解析\n(配置未提供可用的解析接口)'
+          : result.fail == PlayFail.noProxy
+              ? '本地代理服务未就绪\n(请返回重试)'
+              : '没有可播放的地址\n(播放地址为空或获取失败)';
       setState(() {
         _loading = false;
-        _error = '没有可播放的地址\n(可能需要浏览器嗅探, 目前无法 support)';
+        _error = msg;
       });
       return;
     }
@@ -129,9 +135,20 @@ class _PlayerPageState extends State<PlayerPage> {
       }
     }
     try {
-      await _player.open(Media(info.url, httpHeaders: info.headers));
+      // 转圈兜底: media_kit 打开卡死 (代理分片无响应/上游挂起) 时不会抛错,
+      // 没有超时 await 永不返回, 用户只能看到永久转圈. 30s 足够首帧建立,
+      // 超时按错误展示并可重试.
+      await _player
+          .open(Media(info.url, httpHeaders: info.headers))
+          .timeout(const Duration(seconds: 30));
       if (!mounted) return;
       setState(() => _loading = false);
+    } on TimeoutException {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = '播放加载超时\n(源响应慢或代理链路异常, 可重试或换源)';
+      });
     } catch (e) {
       if (!mounted) return;
       setState(() {

@@ -1,0 +1,16 @@
+*.iml
+*.class
+build/
+.gradle/
+local.properties
+.idea/
+.DS_Store
+captures/
+.externalNativeBuild
+.cxx
+
+# Flutter
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+*.lock

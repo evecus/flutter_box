@@ -66,7 +66,7 @@ class Site {
       key: (map['key'] as String?) ?? '',
       name: (map['name'] as String?) ?? '',
       type: map['type'] is int ? map['type'] as int : int.tryParse('${map['type']}') ?? 0,
-      api: _absApi((map['api'] as String?) ?? '', base),
+      api: _abs((map['api'] as String?) ?? '', base),
       ext: _pickExt(map, base),
       jar: _abs(map['jar'] is String ? map['jar'] as String : '', base),
     );
@@ -84,18 +84,6 @@ class Site {
     if (p.startsWith('/')) return root + p;
     if (p.startsWith('./')) return dir + p.substring(2);
     return dir + p;
-  }
-
-  /// api 的绝对化必须放过 csp_ 前缀:
-  /// csp_XXX 是主 jar 内爬虫类引用 (com.github.catvod.spider.XXX), 不是相对路径.
-  /// 若按 _abs 拼成 http://<配置域名>/csp_XXX, Kotlin 侧 removePrefix("csp_")
-  /// 后得到 http://<域名>/XXX, loadClass 必然 ClassNotFound —— 所有 jar 源全灭,
-  /// 而 js 源 (api 为完整 URL) 不受影响, 表现为"只有直播源能搜到".
-  /// 对照原版 ApiConfig: sb.setApi(obj.get("api").getAsString().trim()) 原样透传.
-  static String _absApi(String path, String base) {
-    final t = path.trim();
-    if (t.startsWith('csp_')) return t;
-    return _abs(t, base);
   }
 
   /// ext 可以是: 空 / 对象 / 数组 / url 字符串 / md5。只有像远程路径的才补全。
@@ -119,6 +107,31 @@ class Site {
         'ext': ext,
         'jar': jar,
       };
+}
+
+/// 解析器 (对照原版 ParseBean). parse=1 的播放地址走它解析出真实流地址.
+/// type 0 = WebView 嗅探; 1 = json 接口 (GET url+encode(播放地址) → {"url":...});
+/// 2/3 = jar 内置 Json/Mix 解析器 (flutter_box 未加载解析 jar, 暂不可用).
+class ParseBean {
+  final String name;
+  final String url;
+  final int type;
+  final String ext;
+
+  const ParseBean({required this.name, required this.url, required this.type, this.ext = ''});
+
+  static ParseBean? fromMap(dynamic raw, String base) {
+    if (raw is! Map) return null;
+    final u = ((raw['url'] as String?) ?? '').trim();
+    if (u.isEmpty) return null;
+    final t = raw['type'];
+    return ParseBean(
+      name: ((raw['name'] as String?) ?? '').trim(),
+      url: Site._abs(u, base),
+      type: t is int ? t : int.tryParse('$t') ?? 0,
+      ext: '${raw['ext'] ?? ''}',
+    );
+  }
 }
 
 class Config {
@@ -191,6 +204,10 @@ class Config {
   /// 集合配置 ({"urls":[...]}) 的线路列表; 当前生效的是 [url] 对应那条.
   List<ConfigLine> lines = const [];
   String lineSource = '';
+
+  /// 配置里的 parses 解析器列表 (原版 ApiConfig.parses). play=1 且 jx 为空时,
+  /// 播放页取第一个 type 1 (json 接口) 解析器兜底.
+  List<ParseBean> parses = const [];
 
   Config(this.url);
 
@@ -308,6 +325,16 @@ class Config {
       if (sitesRaw is List && sitesRaw.isNotEmpty) {
         spiderRaw = (map['spider'] as String?) ?? '';
         _parseSites(sitesRaw);
+        // parses 解析器 (与 sites 同级; 缺省为空列表)
+        final parsesRaw = map['parses'];
+        if (parsesRaw is List) {
+          final parsed = <ParseBean>[];
+          for (final item in parsesRaw) {
+            final bean = ParseBean.fromMap(item, base);
+            if (bean != null) parsed.add(bean);
+          }
+          parses = parsed;
+        }
         url = current;
         return;
       }

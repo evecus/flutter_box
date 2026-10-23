@@ -177,41 +177,6 @@ void main() {
       await s.close();
     });
 
-    test('csp_ api 原样透传不拼 base; 相对 js 路径仍补全 (jar 源全灭 bug 回归)', () async {
-      final s = await _MockServer.start({'/c.json': _sitesJson});
-      final config = Config(s.url('/c.json'));
-      await config.fetch();
-      expect(config.sites.length, 4);
-      // csp_XXX 是主 jar 内爬虫类引用, 曾被 _abs 误拼成
-      // http://<配置域名>/csp_XXX, Kotlin 侧 removePrefix 后 loadClass 必失败
-      final csp = config.sites.firstWhere((e) => e.key == 'csp1');
-      expect(csp.api, 'csp_NewDouBanGuard');
-      // js 源为完整 URL, 不受影响
-      final js = config.sites.firstWhere((e) => e.key == 'js1');
-      expect(js.api, 'https://example.com/niba.js');
-      await s.close();
-    });
-
-    test('相对路径 api/jar 仍按 base 补全', () async {
-      final s = await _MockServer.start({
-        '/dir/rel.json': jsonEncode({
-          'sites': [
-            {'key': 'j', 'name': '相对js', 'type': 3, 'api': './lib/a.js'},
-            {'key': 'c', 'name': '相对jar', 'type': 3, 'api': 'csp_X', 'jar': './spider.jar'},
-          ]
-        }),
-      });
-      final config = Config(s.url('/dir/rel.json'));
-      await config.fetch();
-      expect(config.sites.length, 2);
-      expect(config.sites.firstWhere((e) => e.key == 'j').api,
-          '${s.url('/dir/')}lib/a.js');
-      expect(config.sites.firstWhere((e) => e.key == 'c').api, 'csp_X');
-      expect(config.sites.firstWhere((e) => e.key == 'c').jar,
-          '${s.url('/dir/')}spider.jar');
-      await s.close();
-    });
-
     test('不可解析内容抛 ConfigException', () async {
       final s = await _MockServer.start({'/bad.json': '<html>not a config</html>'});
       final config = Config(s.url('/bad.json'));

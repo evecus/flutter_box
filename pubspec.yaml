@@ -4,24 +4,26 @@ publish_to: none
 version: 1.0.0+1
 
 environment:
-  sdk: ">=3.4.0 <4.0.0"
+  sdk: ">=2.17.0 <4.0.0"
 
 dependencies:
   flutter:
     sdk: flutter
-  cupertino_icons: ^1.0.8
+  cupertino_icons: 1.0.5
   # 锁死精确版本: 1.3.x 系列要求 Flutter 3.35+ 的新 embedding (onSurfaceDestroyed)
-  media_kit: 1.1.11
-  media_kit_video: 1.2.5
-  media_kit_libs_android_video: 1.3.7
-  shared_preferences: ^2.2.2
-  path_provider: ^2.1.4
-  http: ^1.2.2
+  shared_preferences: 2.0.15
+  path_provider: 2.0.14
+  http: 0.13.5
+  # 播放器 (lib/pages/player_page.dart, lib/main.dart, lib/pages/settings_page.dart 引用).
+  # media_kit_video 全系要求 Flutter SDK >=3.7; ^1.2.0 覆盖 Dart 3.1+,
+  # 播放链 API (Player / Media / VideoController) 与本项目用法一致.
+  media_kit: ^1.2.0
+  media_kit_video: ^1.2.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^4.0.0
+  flutter_lints: 1.0.4
 
 flutter:
   uses-material-design: true

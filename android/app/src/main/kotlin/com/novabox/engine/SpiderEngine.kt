@@ -14,6 +14,8 @@ import org.json.JSONObject
 import java.util.concurrent.Callable
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 
 object SpiderEngine {
 
@@ -64,9 +66,18 @@ object SpiderEngine {
                     val siteKey = call.argument<String>("siteKey") ?: ""
                     val method = call.argument<String>("method") ?: ""
                     val arg = call.argument<String>("arg") ?: ""
+                    if (method == "player" || method == "play") {
+                        // 对照原版 PlayActivity.initData: 播放前记录当前播放源,
+                        // 爬虫生成的 proxy:// URL 不带 siteKey 时代理分发靠它回填.
+                        SpiderLoader.currentPlaySourceKey = siteKey
+                    }
                     runner.execute {
                         val data = try {
-                            SpiderLoader.invoke(siteKey, method, arg)
+                            if (method == "player" || method == "play") {
+                                invokePlayWithTimeout(siteKey, method, arg)
+                            } else {
+                                SpiderLoader.invoke(siteKey, method, arg)
+                            }
                         } catch (th: Throwable) {
                             Loge.e("echo-invoke " + th.message)
                             ""
@@ -151,4 +162,22 @@ object SpiderEngine {
         runner.shutdownNow()
         channel = null
     }
+
+    /// 对照原版 SourceViewModel.getPlay: playerContent 包超时执行
+    /// (原版 getPlayTimeoutSeconds 缺省 15s). 爬虫网络卡死时若不超时,
+    /// Dart 侧 await 永不返回, 播放页永久转圈.
+    private fun invokePlayWithTimeout(siteKey: String, method: String, arg: String): String {
+        val executor = Executors.newSingleThreadExecutor()
+        return try {
+            val future = executor.submit(Callable { SpiderLoader.invoke(siteKey, method, arg) })
+            future.get(PLAY_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        } catch (e: TimeoutException) {
+            Loge.e("echo-invoke play-timeout siteKey=$siteKey")
+            ""
+        } finally {
+            executor.shutdownNow()
+        }
+    }
+
+    private const val PLAY_TIMEOUT_SECONDS = 15L
 }
