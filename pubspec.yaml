@@ -5,7 +5,7 @@ version: 1.0.0+1
 
 environment:
   # 项目代码使用 Dart 3 records (lib/config/config.dart 的 (bool ok, String msg)
-  # 返回类型 / 各处 final (ok, msg) 解构), 且 media_kit >=1.2.0 要求 Dart >=3.1.
+  # 返回类型 / 各处 final (ok, msg) 解构), 且 media_kit >=1.3.0 要求 Dart >=3.1.
   # sdk 下限决定语言版本: 写 2.17 会把语言特性钉死在 2.17, records 全部编译失败.
   sdk: ">=3.1.0 <4.0.0"
 
@@ -19,9 +19,10 @@ dependencies:
   path_provider: 2.0.14
   http: 0.13.5
   # 播放器 (lib/pages/player_page.dart, lib/main.dart, lib/pages/settings_page.dart 引用).
-  # 锁 <1.3.0: CI 与本地均为 Flutter 3.27.4; 升级到 Flutter >=3.35 时再放开到 1.3.x.
-  media_kit: '>=1.2.0 <1.3.0'
-  media_kit_video: '>=1.2.0 <1.3.0'
+  # media_kit 1.3.x 起依赖 Flutter 3.35+ 新 embedding (onSurfaceDestroyed),
+  # CI workflow 与本地统一 Flutter 3.35.2; <1.3.0 锁 1.2.x 兼容 Flutter 3.7~3.34.
+  media_kit: '>=1.3.0 <2.0.0'
+  media_kit_video: '>=1.3.0 <2.0.0'
 
 dev_dependencies:
   flutter_test:
