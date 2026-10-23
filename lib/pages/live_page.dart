@@ -67,6 +67,16 @@ class _LivePageState extends State<LivePage> {
   Timer? _overlayTimer;
   bool _portraitFullscreen = false;
 
+  // ---- TV 全屏 ----
+  // 全屏 = 隐藏左侧导航与右侧列表, 视频铺满整屏 (RootPage.liveFullscreen 通知外壳收起导航).
+  // 全屏中: 上/下=上/下一频道, 左/右=上/下一线路, OK=唤出频道列表面板, 返回=收起面板/退出全屏.
+  bool _tvFullscreen = false;
+  bool _tvPanel = false;
+  final FocusNode _tvKeyNode = FocusNode(debugLabel: 'live-fullscreen-root');
+  final FocusNode _tvPlayerNode = FocusNode(debugLabel: 'live-player');
+  final FocusScopeNode _panelScope = FocusScopeNode(debugLabel: 'live-panel');
+  final GlobalKey _playerKey = GlobalKey(debugLabel: 'live-player-area');
+
   // ---- 右上角频道名角标 ----
   bool _badgeVisible = false;
   String _badgeName = '';
@@ -101,6 +111,14 @@ class _LivePageState extends State<LivePage> {
       s.cancel();
     }
     RootPage.liveFullscreen.value = false;
+    if (_tvFullscreen) {
+      try {
+        SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+      } catch (_) {}
+    }
+    _tvKeyNode.dispose();
+    _tvPlayerNode.dispose();
+    _panelScope.dispose();
     _player.dispose();
     super.dispose();
   }
@@ -284,6 +302,7 @@ class _LivePageState extends State<LivePage> {
   void _clickLiveChannel(int position) {
     // 对照 clickLiveChannel: 取当前选中分组的第 position 个频道
     _playChannel(_selectedGroupIndex, position);
+    if (_tvFullscreen) _hideTvPanel(); // TV 全屏: 选台后收起面板, 回到纯画面
   }
 
   // ================= 自动换源 (对照 mConnectTimeoutChangeSourceRun) =================
@@ -532,8 +551,10 @@ class _LivePageState extends State<LivePage> {
     _cancelTimers();
     _needManualPlay = true;
     _player.stop();
-    if (_portraitFullscreen) {
+    if (_portraitFullscreen || _tvFullscreen) {
       _portraitFullscreen = false;
+      _tvFullscreen = false;
+      _tvPanel = false;
       RootPage.liveFullscreen.value = false;
       try {
         SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
@@ -606,10 +627,29 @@ class _LivePageState extends State<LivePage> {
   }
 
   // ---- TV: 播放器(72%) + 右侧面板(28%), 对照 layout-sw600dp/fragment_live.xml ----
+  // 播放器区域本身可聚焦 (焦点环提示), OK 键进入全屏.
   Widget _buildTV() {
+    if (_tvFullscreen) return _buildTvFullscreen();
     return Row(
       children: [
-        Expanded(flex: 72, child: _buildPlayerArea(tv: true)),
+        Expanded(
+          flex: 72,
+          child: Focus(
+            focusNode: _tvPlayerNode,
+            canRequestFocus: true,
+            onKeyEvent: (node, event) {
+              if (event is KeyDownEvent && _isSelectKey(event.logicalKey)) {
+                _enterTvFullscreen();
+                return KeyEventResult.handled;
+              }
+              return KeyEventResult.ignored;
+            },
+            child: KeyedSubtree(
+              key: _playerKey,
+              child: _buildPlayerArea(tv: true),
+            ),
+          ),
+        ),
         Expanded(
           flex: 28,
           child: Column(
@@ -623,7 +663,156 @@ class _LivePageState extends State<LivePage> {
     );
   }
 
-  Widget _buildPlayerArea({required bool tv}) {
+  bool _isSelectKey(LogicalKeyboardKey k) =>
+      k == LogicalKeyboardKey.select ||
+      k == LogicalKeyboardKey.enter ||
+      k == LogicalKeyboardKey.gameButtonA;
+
+  // ---- TV 全屏 ----
+
+  Future<void> _enterTvFullscreen() async {
+    if (_tvFullscreen) return;
+    setState(() {
+      _tvFullscreen = true;
+      _tvPanel = false;
+    });
+    // 通知外壳 (RootPage) 收起 TV 左侧导航与标题栏.
+    RootPage.liveFullscreen.value = true;
+    try {
+      await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    } catch (_) {}
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _tvFullscreen) _tvKeyNode.requestFocus();
+    });
+  }
+
+  Future<void> _exitTvFullscreen() async {
+    if (!_tvFullscreen) return;
+    setState(() {
+      _tvFullscreen = false;
+      _tvPanel = false;
+    });
+    RootPage.liveFullscreen.value = false;
+    try {
+      await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    } catch (_) {}
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && !_tvFullscreen) _tvPlayerNode.requestFocus();
+    });
+  }
+
+  void _showTvPanel() {
+    if (_tvPanel) return;
+    setState(() => _tvPanel = true);
+    // 面板挂载后把焦点送进去 (FocusScope 无已聚焦子节点时, nextFocus 落到第一个可聚焦项).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _tvPanel) {
+        _panelScope.nextFocus();
+        _scrollIntoView();
+      }
+    });
+  }
+
+  void _hideTvPanel() {
+    if (!_tvPanel) return;
+    setState(() => _tvPanel = false);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _tvFullscreen) _tvKeyNode.requestFocus();
+    });
+  }
+
+  void _playAdjacentChannel(int direction) {
+    if (!_isCurrentLiveChannelValid()) return;
+    final (gi, ci) = _getNextChannel(direction);
+    if (gi < 0 || ci < 0) return;
+    _playChannel(gi, ci);
+  }
+
+  KeyEventResult _onTvFullscreenKey(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    // 面板显示时: 方向键/OK 交给列表的焦点遍历.
+    if (_tvPanel) return KeyEventResult.ignored;
+    final k = event.logicalKey;
+    if (k == LogicalKeyboardKey.arrowUp || k == LogicalKeyboardKey.channelUp) {
+      _playAdjacentChannel(-1);
+      return KeyEventResult.handled;
+    }
+    if (k == LogicalKeyboardKey.arrowDown || k == LogicalKeyboardKey.channelDown) {
+      _playAdjacentChannel(1);
+      return KeyEventResult.handled;
+    }
+    if (k == LogicalKeyboardKey.arrowLeft) {
+      _playPreSourceManual();
+      return KeyEventResult.handled;
+    }
+    if (k == LogicalKeyboardKey.arrowRight) {
+      _playNextSourceManual();
+      return KeyEventResult.handled;
+    }
+    if (_isSelectKey(k)) {
+      _showTvPanel();
+      return KeyEventResult.handled;
+    }
+    if (k == LogicalKeyboardKey.contextMenu) {
+      _refreshChannel();
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
+  }
+
+  Widget _buildTvFullscreen() {
+    final width = MediaQuery.sizeOf(context).width;
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        if (_tvPanel) {
+          _hideTvPanel();
+        } else {
+          _exitTvFullscreen();
+        }
+      },
+      child: Focus(
+        focusNode: _tvKeyNode,
+        canRequestFocus: true,
+        onKeyEvent: _onTvFullscreenKey,
+        child: ColoredBox(
+          color: Colors.black,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              // 与非全屏共用同一个 GlobalKey: 切换布局时 Video/播放状态不重建.
+              KeyedSubtree(
+                key: _playerKey,
+                child: _buildPlayerArea(tv: true, fullscreen: true),
+              ),
+              if (_tvPanel)
+                Positioned(
+                  right: 0,
+                  top: 0,
+                  bottom: 0,
+                  width: (width * 0.34).clamp(320.0, 520.0),
+                  child: Material(
+                    color: const Color(0xE6101418),
+                    child: FocusScope(
+                      node: _panelScope,
+                      child: Column(
+                        children: [
+                          _buildInfoBar(tv: true),
+                          Expanded(child: _buildBodyArea(tv: true)),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPlayerArea({required bool tv, bool fullscreen = false}) {
     return Stack(
       fit: StackFit.expand,
       children: [
@@ -633,7 +822,8 @@ class _LivePageState extends State<LivePage> {
           const Center(child: CircularProgressIndicator(strokeWidth: 2)),
         if (_badgeVisible)
           Positioned(top: 6, right: 6, child: _buildBadge(tv: tv)),
-        if (tv) _buildTvControlBar() else _buildOverlay(),
+        // TV 全屏时不常驻控制条 (用遥控器按键直接操作); 非全屏才显示.
+        if (tv && !fullscreen) _buildTvControlBar() else if (!tv) _buildOverlay(),
       ],
     );
   }
@@ -964,6 +1154,14 @@ class _LivePageState extends State<LivePage> {
               height: 40,
               fontSize: 15,
               onTap: _playNextSourceManual,
+            ),
+            const SizedBox(width: 12),
+            TvButton(
+              label: '全屏',
+              icon: Icons.fullscreen,
+              height: 40,
+              fontSize: 15,
+              onTap: _enterTvFullscreen,
             ),
           ],
         ),

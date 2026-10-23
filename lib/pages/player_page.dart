@@ -70,6 +70,14 @@ class _PlayerPageState extends State<PlayerPage> {
 
   final _subs = <StreamSubscription<dynamic>>[];
 
+  // ---- TV 全屏: 控制层自动隐藏 / 遥控器快进快退提示 ----
+  static const _kTvOverlaySeconds = 8;
+  bool _tvOverlay = true; // 进入时先显示一会儿 (含选集), 无操作后自动隐藏
+  Timer? _tvOverlayTimer;
+  final FocusNode _tvRootNode = FocusNode(debugLabel: 'player-root');
+  final ValueNotifier<String> _seekHint = ValueNotifier<String>('');
+  Timer? _seekHintTimer;
+
   /// 当前集是否已触发过弹幕搜索 (设置里开启弹幕后据此补搜).
   bool _danmakuSearched = false;
 
@@ -80,6 +88,11 @@ class _PlayerPageState extends State<PlayerPage> {
   void initState() {
     super.initState();
     _idx = widget.startIndex.clamp(0, widget.epUrls.isEmpty ? 0 : widget.epUrls.length - 1);
+    if (TvMode.isTV.value) {
+      // TV 全屏: 隐藏系统栏 (部分盒子/电视有状态栏或导航条), 控制层几秒后自动收起.
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+      _showTvOverlay();
+    }
     _bindStreams();
     // 弹幕设置变更 (行数/边距/开关等) → 重建弹幕区域 + 热更新容器属性.
     DanmuSettings.instance.revision.addListener(_onDanmuSettingsChanged);
@@ -275,6 +288,13 @@ class _PlayerPageState extends State<PlayerPage> {
         _player.state.duration.inMilliseconds,
       );
     }
+    _tvOverlayTimer?.cancel();
+    _seekHintTimer?.cancel();
+    _seekHint.dispose();
+    _tvRootNode.dispose();
+    if (TvMode.isTV.value) {
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    }
     _player.dispose();
     super.dispose();
   }
@@ -337,47 +357,154 @@ class _PlayerPageState extends State<PlayerPage> {
         ),
       );
     }
-    // ---------------- TV: 无 AppBar, 视频占满, 自制遥控控制条 + 横排选集 ----------------
-    return Scaffold(
-      body: SafeArea(
-        top: false,
-        child: Column(
-          children: [
-            Expanded(
-              child: Focus(
-                autofocus: true,
-                canRequestFocus: true,
-                onKeyEvent: _onMenuKey,
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    // TV 不用 AdaptiveVideoControls: 其控件依赖指针事件唤出,
-                    // 遥控器无指针. 改为自绘可聚焦控制条 (见 _tvControlBar).
-                    Video(controller: _controller),
-                    // 弹幕层: 位于视频之上, 控制条之下.
-                    _danmakuLayer(),
-                    Positioned(
-                      left: 0,
-                      right: 0,
-                      top: 0,
-                      child: _tvTopBar(),
-                    ),
-                    Positioned(
-                      left: 0,
-                      right: 0,
-                      bottom: 0,
-                      child: _tvControlBar(),
-                    ),
-                    if (_loading || _error.isNotEmpty) _statusView(),
-                  ],
+    // ---------------- TV: 全屏播放 ----------------
+    // 视频铺满整屏; 顶栏/控制条/选集组成"控制层", 无操作 8 秒自动隐藏:
+    //   隐藏时: OK=播放/暂停, 左/右=快退/快进 10s (显示进度提示), 上/下=唤出控制层, 返回=退出;
+    //   显示时: 方向键在控制条/选集间移动焦点, 返回=先收起控制层.
+    // 出错时强制显示控制层 (否则遥控器无处落焦点).
+    final overlay = _tvOverlay || _error.isNotEmpty;
+    return PopScope(
+      canPop: !overlay,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        _hideTvOverlay();
+      },
+      child: Scaffold(
+        backgroundColor: Colors.black,
+        body: Focus(
+          focusNode: _tvRootNode,
+          canRequestFocus: true,
+          onKeyEvent: _onTvKey,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              // 必须显式 NoVideoControls: 默认的 AdaptiveVideoControls 是为鼠标/触摸设计的,
+              // 会在 TV 上叠出第二套控件.
+              Video(controller: _controller, controls: NoVideoControls),
+              // 弹幕层: 位于视频之上, 控制层之下.
+              _danmakuLayer(),
+              if (overlay) ...[
+                Positioned(left: 0, right: 0, top: 0, child: _tvTopBar()),
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [_tvControlBar(), _tvEpisodeBar()],
+                  ),
                 ),
+              ],
+              // 控制层隐藏时的快进快退提示
+              ValueListenableBuilder<String>(
+                valueListenable: _seekHint,
+                builder: (_, hint, __) => hint.isEmpty
+                    ? const SizedBox.shrink()
+                    : Center(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
+                          decoration: BoxDecoration(
+                            color: Colors.black54,
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Text(hint, style: const TextStyle(fontSize: 26)),
+                        ),
+                      ),
               ),
-            ),
-            _tvEpisodeBar(),
-          ],
+              if (_loading || _error.isNotEmpty) _statusView(),
+            ],
+          ),
         ),
       ),
     );
+  }
+
+  // ---------------- TV 控制层显隐 / 按键 ----------------
+
+  void _showTvOverlay() {
+    _tvOverlayTimer?.cancel();
+    if (!_tvOverlay && mounted) setState(() => _tvOverlay = true);
+    _tvOverlayTimer = Timer(const Duration(seconds: _kTvOverlaySeconds), _hideTvOverlay);
+  }
+
+  void _hideTvOverlay() {
+    _tvOverlayTimer?.cancel();
+    if (!mounted || !_tvOverlay) return;
+    setState(() => _tvOverlay = false);
+    // 控制层卸载后焦点要回到根节点, 否则按键没人接 (根 Focus 才处理隐藏态按键).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _tvRootNode.requestFocus();
+    });
+  }
+
+  void _tvSeek(int seconds) {
+    final dur = _player.state.duration;
+    var target = _player.state.position + Duration(seconds: seconds);
+    if (target < Duration.zero) target = Duration.zero;
+    if (dur > Duration.zero && target > dur) target = dur;
+    _player.seek(target);
+    _seekHint.value = '${seconds > 0 ? '⏩' : '⏪'} ${_fmt(target)} / ${_fmt(dur)}';
+    _seekHintTimer?.cancel();
+    _seekHintTimer = Timer(const Duration(milliseconds: 1200), () => _seekHint.value = '');
+  }
+
+  KeyEventResult _onTvKey(FocusNode node, KeyEvent event) {
+    // MENU 键: 弹幕开关 / 设置 (原有逻辑)
+    if (_onMenuKey(node, event) == KeyEventResult.handled) return KeyEventResult.handled;
+    if (event is KeyUpEvent) return KeyEventResult.ignored;
+    final k = event.logicalKey;
+
+    // 遥控器媒体键: 任何状态都生效
+    if (event is KeyDownEvent) {
+      if (k == LogicalKeyboardKey.mediaPlayPause) {
+        _player.playOrPause();
+        return KeyEventResult.handled;
+      }
+      if (k == LogicalKeyboardKey.mediaPlay) {
+        _player.play();
+        return KeyEventResult.handled;
+      }
+      if (k == LogicalKeyboardKey.mediaPause) {
+        _player.pause();
+        return KeyEventResult.handled;
+      }
+    }
+    if (k == LogicalKeyboardKey.mediaFastForward) {
+      _tvSeek(30);
+      return KeyEventResult.handled;
+    }
+    if (k == LogicalKeyboardKey.mediaRewind) {
+      _tvSeek(-30);
+      return KeyEventResult.handled;
+    }
+
+    if (_tvOverlay || _error.isNotEmpty) {
+      // 控制层显示中: 任意按键续命, 方向键交给焦点遍历.
+      _showTvOverlay();
+      return KeyEventResult.ignored;
+    }
+    // 控制层隐藏中
+    if (k == LogicalKeyboardKey.arrowLeft) {
+      _tvSeek(-10);
+      return KeyEventResult.handled;
+    }
+    if (k == LogicalKeyboardKey.arrowRight) {
+      _tvSeek(10);
+      return KeyEventResult.handled;
+    }
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    if (k == LogicalKeyboardKey.select ||
+        k == LogicalKeyboardKey.enter ||
+        k == LogicalKeyboardKey.gameButtonA) {
+      _player.playOrPause();
+      _showTvOverlay();
+      return KeyEventResult.handled;
+    }
+    if (k == LogicalKeyboardKey.arrowUp || k == LogicalKeyboardKey.arrowDown) {
+      _showTvOverlay();
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
   }
 
   /// 弹幕覆盖层: 位置/高度由设置决定 (顶边距 + 行数×字号×行高),
@@ -476,6 +603,7 @@ class _PlayerPageState extends State<PlayerPage> {
                 stream: _player.stream.playing,
                 initialData: _player.state.playing,
                 builder: (ctx, snap) => TvButton(
+                  autofocus: true,
                   label: snap.data == true ? '暂停' : '播放',
                   icon: snap.data == true ? Icons.pause : Icons.play_arrow,
                   height: 48,
@@ -566,7 +694,7 @@ class _PlayerPageState extends State<PlayerPage> {
     if (widget.epUrls.isEmpty) return const SizedBox.shrink();
     return Container(
       height: 96,
-      color: Colors.black26,
+      color: Colors.black54,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       child: ListView.builder(
         scrollDirection: Axis.horizontal,

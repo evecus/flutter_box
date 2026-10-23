@@ -34,6 +34,13 @@ class RootPage extends StatefulWidget {
 class _RootPageState extends State<RootPage> {
   int _tab = 0;
 
+  /// 页面栈用 GlobalKey: TV 直播全屏时外壳 (导航栏/标题栏) 被收起, 页面栈换了父节点,
+  /// 没有 GlobalKey 的话 State 会被重建 → 直播页 dispose → 播放中断.
+  final GlobalKey _stackKey = GlobalKey(debugLabel: 'root-page-stack');
+
+  /// 上一次是否处于全屏: 刚退出全屏时导航栏重建, 它的 autofocus 会抢走直播页刚还回的焦点.
+  bool _wasFullscreen = false;
+
   static const _titles = ['首页', '直播', '收藏', '历史', '设置'];
 
   static const _destinations = [
@@ -109,44 +116,56 @@ class _RootPageState extends State<RootPage> {
     // 1. IndexedStack 里 5 个页面同时挂载, 不可见页面的控件仍在焦点树里, 方向键会"跳进看不见的
     //    页面"或被其 autofocus 抢走焦点 → 用 ExcludeFocus 把非当前页整体排除出焦点遍历.
     // 2. 导航项自己是可聚焦控件 (旧实现用 NavigationRail 外包一个空 Focus, 初始焦点落在空壳上).
-    return Scaffold(
-      body: Row(
-        children: [
-          _tvRail(context),
-          const VerticalDivider(width: 1),
-          Expanded(
-            child: Column(
-              children: [
-                // TV 无 AppBar: 用一行大号标题代替 (10-foot UI).
-                Container(
-                  height: 52,
-                  alignment: Alignment.centerLeft,
-                  padding: const EdgeInsets.only(left: 20),
-                  child: Text(
-                    _titles[_tab],
-                    style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
-                  ),
+    final stack = IndexedStack(
+      key: _stackKey,
+      index: _tab,
+      children: [
+        for (var i = 0; i < pages.length; i++)
+          ExcludeFocus(excluding: i != _tab, child: pages[i]),
+      ],
+    );
+    return ValueListenableBuilder<bool>(
+      valueListenable: RootPage.liveFullscreen,
+      builder: (ctx, fullscreen, _) {
+        // TV 全屏 (直播): 收起导航栏与标题栏, 页面铺满整屏.
+        if (fullscreen) {
+          _wasFullscreen = true;
+          return Scaffold(backgroundColor: Colors.black, body: stack);
+        }
+        final railAutofocus = !_wasFullscreen;
+        _wasFullscreen = false;
+        return Scaffold(
+          body: Row(
+            children: [
+              _tvRail(ctx, autofocus: railAutofocus),
+              const VerticalDivider(width: 1),
+              Expanded(
+                child: Column(
+                  children: [
+                    // TV 无 AppBar: 用一行大号标题代替 (10-foot UI).
+                    Container(
+                      height: 52,
+                      alignment: Alignment.centerLeft,
+                      padding: const EdgeInsets.only(left: 20),
+                      child: Text(
+                        _titles[_tab],
+                        style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                    const Divider(height: 1),
+                    Expanded(child: stack),
+                  ],
                 ),
-                const Divider(height: 1),
-                Expanded(
-                  child: IndexedStack(
-                    index: _tab,
-                    children: [
-                      for (var i = 0; i < pages.length; i++)
-                        ExcludeFocus(excluding: i != _tab, child: pages[i]),
-                    ],
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
   /// TV 左侧导航: 每项是 [TvFocusable]; OK 键切换页签, 向右键进入内容区.
-  Widget _tvRail(BuildContext context) {
+  Widget _tvRail(BuildContext context, {required bool autofocus}) {
     final primary = Theme.of(context).colorScheme.primary;
     return SizedBox(
       width: 112,
@@ -168,7 +187,7 @@ class _RootPageState extends State<RootPage> {
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               child: TvFocusable(
                 // 初始焦点落在当前选中的导航项上
-                autofocus: i == _tab,
+                autofocus: autofocus && i == _tab,
                 radius: 14,
                 onTap: () => _select(i),
                 child: Container(
